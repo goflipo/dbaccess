@@ -1,30 +1,36 @@
 import React, { useState } from 'react';
 import './ActivationScreen.css';
 
-export default function ActivationScreen({ onActivated }) {
-  const [apiKey, setApiKey]     = useState('');
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
-  const [success, setSuccess]   = useState(false);
+export default function ActivationScreen({ onActivated, startupMessage = '' }) {
+  const [apiKey, setApiKey]           = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setEmail]     = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState('');
+  const [success, setSuccess]         = useState(false);
 
   const formatKey = (value) => {
-    // Auto-format as XXXX-XXXX-XXXX-XXXX while typing
     const raw = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 16);
     const parts = raw.match(/.{1,4}/g) || [];
     return parts.join('-');
   };
 
-  const handleChange = (e) => {
+  const handleKeyChange = (e) => {
     setError('');
     setApiKey(formatKey(e.target.value));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = apiKey.trim();
+    const trimmedKey = apiKey.trim();
 
-    if (trimmed.replace(/-/g, '').length < 16) {
+    if (trimmedKey.replace(/-/g, '').length < 16) {
       setError('Please enter a complete 16-character API key (XXXX-XXXX-XXXX-XXXX)');
+      return;
+    }
+
+    if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      setError('Please enter a valid email address');
       return;
     }
 
@@ -32,14 +38,18 @@ export default function ActivationScreen({ onActivated }) {
     setError('');
 
     try {
-      const result = await window.dbAccess.license.activate(trimmed);
+      const result = await window.dbAccess.license.activate(
+        trimmedKey,
+        customerName.trim() || undefined,
+        customerEmail.trim() || undefined,
+      );
       if (result.success) {
         setSuccess(true);
         setTimeout(() => onActivated(), 1200);
       } else {
         setError(result.error || 'Activation failed. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('Unexpected error. Please restart the application.');
     } finally {
       setLoading(false);
@@ -58,7 +68,11 @@ export default function ActivationScreen({ onActivated }) {
         </div>
 
         <h1 className="activation-title">DB Access</h1>
-        <p className="activation-subtitle">Enter your API key to activate the application</p>
+        <p className="activation-subtitle">Enter your license key to activate the application</p>
+
+        {startupMessage && (
+          <div className="activation-startup-msg">{startupMessage}</div>
+        )}
 
         {success ? (
           <div className="activation-success">
@@ -71,20 +85,47 @@ export default function ActivationScreen({ onActivated }) {
         ) : (
           <form className="activation-form" onSubmit={handleSubmit}>
             <div className="activation-field">
-              <label className="activation-label">API Key</label>
+              <label className="activation-label">API Key <span className="activation-required">*</span></label>
               <input
                 className={`activation-input${error ? ' activation-input-error' : ''}`}
                 type="text"
                 placeholder="XXXX-XXXX-XXXX-XXXX"
                 value={apiKey}
-                onChange={handleChange}
+                onChange={handleKeyChange}
                 disabled={loading}
                 autoFocus
                 spellCheck={false}
                 maxLength={19}
               />
-              {error && <p className="activation-error">{error}</p>}
             </div>
+
+            <div className="activation-field">
+              <label className="activation-label">Your Name <span className="activation-optional">(optional)</span></label>
+              <input
+                className="activation-input"
+                type="text"
+                placeholder="Jane Smith"
+                value={customerName}
+                onChange={e => setCustomerName(e.target.value)}
+                disabled={loading}
+                maxLength={255}
+              />
+            </div>
+
+            <div className="activation-field">
+              <label className="activation-label">Email <span className="activation-optional">(optional)</span></label>
+              <input
+                className="activation-input"
+                type="email"
+                placeholder="jane@example.com"
+                value={customerEmail}
+                onChange={e => { setError(''); setEmail(e.target.value); }}
+                disabled={loading}
+                maxLength={255}
+              />
+            </div>
+
+            {error && <p className="activation-error">{error}</p>}
 
             <button
               type="submit"

@@ -2,6 +2,8 @@ This is an Electron app — it runs on desktop (Windows, macOS, Linux). iOS is n
   Electron — iOS only allows apps built with Apple's native frameworks (Swift/Objective-C) or React   
   Native / Flutter. There is no iOS build path for this project.
                                                                                                         Here are the actual build commands available:                                                          
+  npm run rebuild
+  
   ---                                                                                                 
   Windows (builds an NSIS installer .exe):
   npm run package:win

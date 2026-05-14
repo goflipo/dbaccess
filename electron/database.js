@@ -35,6 +35,11 @@ const MYSQL_FIELD_TYPES = {
   254: 'char', 255: 'geometry',
 };
 
+// Types that use the pg driver (PostgreSQL wire protocol)
+const PG_WIRE = new Set(['postgres', 'cockroachdb', 'greenplum', 'redshift']);
+// Types that use the mysql2 driver (MySQL wire protocol)
+const MYSQL_WIRE = new Set(['mysql', 'mariadb']);
+
 class DatabaseManager {
   constructor() {
     this.connections = new Map();
@@ -117,10 +122,11 @@ class DatabaseManager {
       }
     }
 
-    if (type === 'postgres') {
+    if (PG_WIRE.has(type)) {
+      const defaultPort = type === 'cockroachdb' ? 26257 : type === 'redshift' ? 5439 : 5432;
       const pool = new Pool({
         host: effectiveHost,
-        port: parseInt(effectivePort) || 5432,
+        port: parseInt(effectivePort) || defaultPort,
         database: database || 'postgres',
         user: username,
         password,
@@ -128,19 +134,17 @@ class DatabaseManager {
         max: 5,
         options: '-c TimeZone=UTC',
       });
-      // Definitive timezone fix: run on every new physical connection so the
-      // pg library cannot override it with the Windows system offset (GMT+0530).
       pool.on('connect', (client) => {
         client.query("SET TimeZone = 'UTC'").catch(() => {});
       });
       const client = await pool.connect();
-      // Capture actual connected DB name
       const dbResult = await client.query('SELECT current_database()');
       const activeDb = dbResult.rows[0]?.current_database || database || 'postgres';
       client.release();
-      this.connections.set(id, { client: pool, config: { ...config, database: activeDb }, type: 'postgres', activeDb });
-      console.log(`[DB] Connected to PostgreSQL database: "${activeDb}" on ${effectiveHost}:${effectivePort || 5432}`);
+      this.connections.set(id, { client: pool, config: { ...config, database: activeDb }, type, activeDb });
+      console.log(`[DB] Connected to ${type} database: "${activeDb}" on ${effectiveHost}:${effectivePort || defaultPort}`);
       return { success: true, id, activeDb };
+
     } else if (type === 'clickhouse') {
       const { createClient } = require('@clickhouse/client');
       const client = createClient({
@@ -152,7 +156,8 @@ class DatabaseManager {
       await client.query({ query: 'SELECT 1', format: 'JSONEachRow' });
       this.connections.set(id, { client, config, type: 'clickhouse' });
       return { success: true, id };
-    } else if (type === 'mysql') {
+
+    } else if (MYSQL_WIRE.has(type)) {
       const mysql = require('mysql2/promise');
       const pool = mysql.createPool({
         host: effectiveHost,
@@ -169,10 +174,173 @@ class DatabaseManager {
       const [dbRows] = await conn2.query('SELECT DATABASE() AS db, VERSION() AS ver');
       const activeDb = dbRows[0]?.db || database || '';
       conn2.release();
-      this.connections.set(id, { client: pool, config: { ...config, database: activeDb }, type: 'mysql', activeDb });
-      console.log(`[DB] Connected to MySQL database: "${activeDb}" on ${effectiveHost}:${effectivePort || 3306}`);
+      this.connections.set(id, { client: pool, config: { ...config, database: activeDb }, type, activeDb });
+      console.log(`[DB] Connected to ${type} database: "${activeDb}" on ${effectiveHost}:${effectivePort || 3306}`);
+      return { success: true, id, activeDb };
+
+    } else if (type === 'sqlite') {
+      const Database = require('better-sqlite3');
+      const dbPath = config.database || config.filePath || ':memory:';
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      this.connections.set(id, { client: db, config, type: 'sqlite', activeDb: dbPath });
+      return { success: true, id, activeDb: dbPath };
+
+    } else if (type === 'duckdb') {
+      const { Database } = require('duckdb-async');
+      const dbPath = config.database || ':memory:';
+      const db = new Database(dbPath);
+      const conn2 = await db.connect();
+      this.connections.set(id, { client: conn2, db, config, type: 'duckdb', activeDb: dbPath });
+      return { success: true, id, activeDb: dbPath };
+
+    } else if (type === 'mssql') {
+      const sql = require('mssql');
+      const pool = await new sql.ConnectionPool({
+        server: effectiveHost,
+        port: parseInt(effectivePort) || 1433,
+        database: database || undefined,
+        user: username,
+        password: password || '',
+        options: { trustServerCertificate: !ssl, encrypt: !!ssl },
+        pool: { max: 5 },
+      }).connect();
+      const activeDb = database || 'master';
+      this.connections.set(id, { client: pool, config, type: 'mssql', activeDb, sql });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'mongodb') {
+      const { MongoClient } = require('mongodb');
+      let url = config.connectionString || '';
+      if (!url) {
+        const auth = username ? `${encodeURIComponent(username)}:${encodeURIComponent(password || '')}@` : '';
+        url = `mongodb://${auth}${effectiveHost}:${effectivePort || 27017}/${database || ''}`;
+      }
+      const client = new MongoClient(url, { tls: !!ssl });
+      await client.connect();
+      const activeDb = database || 'admin';
+      this.connections.set(id, { client, config, type: 'mongodb', activeDb, db: client.db(activeDb) });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'redis') {
+      const Redis = require('ioredis');
+      const redis = new Redis({
+        host: effectiveHost,
+        port: parseInt(effectivePort) || 6379,
+        password: password || undefined,
+        db: parseInt(database) || 0,
+        tls: ssl ? {} : undefined,
+        lazyConnect: true,
+      });
+      await redis.connect();
+      await redis.ping();
+      const activeDb = String(parseInt(database) || 0);
+      this.connections.set(id, { client: redis, config, type: 'redis', activeDb });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'cassandra') {
+      const cassandra = require('cassandra-driver');
+      const client = new cassandra.Client({
+        contactPoints: [effectiveHost],
+        localDataCenter: config.datacenter || 'datacenter1',
+        credentials: username ? { username, password: password || '' } : undefined,
+        keyspace: database || undefined,
+        protocolOptions: { port: parseInt(effectivePort) || 9042 },
+      });
+      await client.connect();
+      const activeDb = database || '';
+      this.connections.set(id, { client, config, type: 'cassandra', activeDb });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'snowflake') {
+      const snowflake = require('snowflake-sdk');
+      snowflake.configure({ logLevel: 'WARN' });
+      const conn2 = await new Promise((resolve, reject) => {
+        const c = snowflake.createConnection({
+          account: config.account || effectiveHost,
+          username,
+          password: password || '',
+          warehouse: config.warehouse || undefined,
+          database: database || undefined,
+          schema: config.schema || undefined,
+        });
+        c.connect((err, c) => err ? reject(err) : resolve(c));
+      });
+      const activeDb = database || '';
+      this.connections.set(id, { client: conn2, config, type: 'snowflake', activeDb });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'bigquery') {
+      const { BigQuery } = require('@google-cloud/bigquery');
+      const bqOpts = { projectId: config.projectId || config.account };
+      if (config.keyFilePath) bqOpts.keyFilename = config.keyFilePath;
+      else if (config.credentials) {
+        try { bqOpts.credentials = JSON.parse(config.credentials); } catch {}
+      }
+      const bq = new BigQuery(bqOpts);
+      await bq.query({ query: 'SELECT 1 AS test', useLegacySql: false });
+      const activeDb = config.projectId || config.account || '';
+      this.connections.set(id, { client: bq, config, type: 'bigquery', activeDb });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'libsql') {
+      const { createClient } = require('@libsql/client');
+      const url = config.connectionString || (database ? `file:${database}` : 'file::memory:?cache=shared');
+      const client = createClient({ url, authToken: password || undefined });
+      await client.execute('SELECT 1');
+      this.connections.set(id, { client, config, type: 'libsql', activeDb: url });
+      return { success: true, id, activeDb: url };
+
+    } else if (type === 'd1') {
+      // Cloudflare D1 via REST API — store credentials, execute via fetch
+      const { accountId, databaseId, apiToken } = config;
+      if (!accountId || !databaseId || !apiToken) throw new Error('Cloudflare D1 requires accountId, databaseId, and apiToken');
+      const testUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`;
+      const resp = await fetch(testUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: 'SELECT 1' }),
+      });
+      if (!resp.ok) throw new Error(`D1 API error: ${resp.status} ${resp.statusText}`);
+      this.connections.set(id, { config, type: 'd1', accountId, databaseId, apiToken, activeDb: databaseId });
+      return { success: true, id, activeDb: databaseId };
+
+    } else if (type === 'dynamodb') {
+      const { DynamoDBClient, ListTablesCommand } = require('@aws-sdk/client-dynamodb');
+      const client = new DynamoDBClient({
+        region: config.region || 'us-east-1',
+        credentials: { accessKeyId: username || '', secretAccessKey: password || '' },
+        ...(effectiveHost && effectiveHost !== 'amazonaws.com'
+          ? { endpoint: `http://${effectiveHost}:${effectivePort || 8000}` } : {}),
+      });
+      await client.send(new ListTablesCommand({ Limit: 1 }));
+      const activeDb = config.region || 'us-east-1';
+      this.connections.set(id, { client, config, type: 'dynamodb', activeDb, DynamoDBClient, region: activeDb });
+      return { success: true, id, activeDb };
+
+    } else if (type === 'vertica') {
+      const vertica = require('vertica-nodejs');
+      const pool = new vertica.Pool({
+        host: effectiveHost,
+        port: parseInt(effectivePort) || 5433,
+        database: database || '',
+        user: username || '',
+        password: password || '',
+        ssl: ssl ? { rejectUnauthorized: false } : false,
+        max: 5,
+      });
+      await new Promise((resolve, reject) => {
+        pool.connect((err, client, done) => {
+          if (err) return reject(err);
+          done();
+          resolve();
+        });
+      });
+      const activeDb = database || '';
+      this.connections.set(id, { client: pool, config, type: 'vertica', activeDb });
       return { success: true, id, activeDb };
     }
+
     throw new Error(`Unsupported database type: ${type}`);
   }
 
@@ -180,9 +348,19 @@ class DatabaseManager {
     const conn = this.connections.get(id);
     if (conn) {
       try {
-        if (conn.type === 'postgres') await conn.client.end();
+        if (PG_WIRE.has(conn.type))         await conn.client.end();
         else if (conn.type === 'clickhouse') await conn.client.close();
-        else if (conn.type === 'mysql') await conn.client.end();
+        else if (MYSQL_WIRE.has(conn.type)) await conn.client.end();
+        else if (conn.type === 'sqlite')     conn.client.close();
+        else if (conn.type === 'duckdb')     { try { conn.client.close(); } catch {} if (conn.db) try { conn.db.close(); } catch {} }
+        else if (conn.type === 'mssql')      await conn.client.close();
+        else if (conn.type === 'mongodb')    await conn.client.close();
+        else if (conn.type === 'redis')      conn.client.disconnect();
+        else if (conn.type === 'cassandra')  await conn.client.shutdown();
+        else if (conn.type === 'snowflake')  await new Promise(r => conn.client.destroy(r));
+        else if (conn.type === 'libsql')     conn.client.close();
+        else if (conn.type === 'vertica')    await conn.client.end();
+        // bigquery, d1, dynamodb: no connection to close
       } catch (e) { console.error('Disconnect error:', e); }
       this.connections.delete(id);
     }
@@ -203,10 +381,8 @@ class DatabaseManager {
     if (!conn) throw new Error('Connection not found');
     const startTime = Date.now();
 
-    if (conn.type === 'postgres') {
+    if (PG_WIRE.has(conn.type)) {
       const result = await conn.client.query(query);
-      // Normalise rows: convert Date objects to ISO strings so the renderer
-      // always receives plain JSON-safe values (avoids the Date.toString() bug).
       const rows = (result.rows || []).map(row => {
         const out = {};
         for (const [k, v] of Object.entries(row)) {
@@ -223,6 +399,7 @@ class DatabaseManager {
         rows, rowCount: result.rowCount,
         duration: Date.now() - startTime, command: result.command,
       };
+
     } else if (conn.type === 'clickhouse') {
       const resultSet = await conn.client.query({ query, format: 'JSONEachRow' });
       const rows = await resultSet.json();
@@ -232,14 +409,13 @@ class DatabaseManager {
         duration: Date.now() - startTime,
         command: query.trim().split(/\s+/)[0].toUpperCase(),
       };
-    } else if (conn.type === 'mysql') {
+
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const [rows, fields] = await conn.client.query(query);
       const command = query.trim().split(/\s+/)[0].toUpperCase();
-      // Non-SELECT: rows is an OkPacket or array of OkPackets
       if (!Array.isArray(rows)) {
         return { columns: [], rows: [], rowCount: rows.affectedRows || 0, duration: Date.now() - startTime, command };
       }
-      // Multi-statement returns array of result sets — return last SELECT result set
       const resultRows = Array.isArray(rows[0]) ? rows[rows.length - 1] : rows;
       const resultFields = Array.isArray(fields?.[0]) ? fields[fields.length - 1] : fields;
       const normalizedRows = resultRows.map(row => {
@@ -260,151 +436,517 @@ class DatabaseManager {
         duration: Date.now() - startTime,
         command,
       };
+
+    } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      if (conn.type === 'sqlite') {
+        const stmt = conn.client.prepare(query);
+        if (['SELECT', 'WITH', 'PRAGMA', 'EXPLAIN', 'VALUES'].includes(command)) {
+          const rows = stmt.all();
+          const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+          return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+        }
+        const info = stmt.run();
+        return { columns: [], rows: [], rowCount: info.changes, duration: Date.now() - startTime, command };
+      } else {
+        const rs = await conn.client.execute(query);
+        const rows = rs.rows.map(r => Object.fromEntries(rs.columns.map((c, i) => [c.name, r[i]])));
+        const columns = rs.columns.map(c => ({ name: c.name, dataType: c.type || 'text' }));
+        return { columns, rows, rowCount: rs.rowsAffected ?? rows.length, duration: Date.now() - startTime, command };
+      }
+
+    } else if (conn.type === 'duckdb') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const rows = await conn.client.all(query);
+      const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'mssql') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const result = await conn.client.request().query(query);
+      const rs = result.recordset || [];
+      const affected = (result.rowsAffected || []).reduce((a, b) => a + b, 0);
+      const columns = rs.length > 0
+        ? Object.keys(rs[0]).map(name => ({ name, dataType: result.recordsets?.[0]?.columns?.[name]?.type?.declaration || 'text' }))
+        : [];
+      return { columns, rows: rs, rowCount: rs.length || affected, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'mongodb') {
+      return await this._executeMongoQuery(conn, query, startTime);
+
+    } else if (conn.type === 'redis') {
+      return await this._executeRedisCommand(conn, query, startTime);
+
+    } else if (conn.type === 'cassandra') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const result = await conn.client.execute(query, [], { prepare: false });
+      const rows = result.rows || [];
+      const columns = result.columns ? result.columns.map(c => ({ name: c.name, dataType: c.type.code?.toString() || 'text' }))
+        : rows.length > 0 ? Object.keys(rows[0]).map(n => ({ name: n, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'snowflake') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const rows = await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: query, complete: (err, stmt, rows) => err ? reject(err) : resolve(rows || []) });
+      });
+      const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'bigquery') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const [rows] = await conn.client.query({ query, useLegacySql: false });
+      const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'd1') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const url = `https://api.cloudflare.com/client/v4/accounts/${conn.accountId}/d1/database/${conn.databaseId}/query`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${conn.apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: query }),
+      });
+      const json = await resp.json();
+      if (!json.success) throw new Error(json.errors?.[0]?.message || 'D1 query failed');
+      const result = json.result?.[0] || {};
+      const rows = result.results || [];
+      const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+
+    } else if (conn.type === 'dynamodb') {
+      return await this._executeDynamoQuery(conn, query, startTime);
+
+    } else if (conn.type === 'vertica') {
+      const command = query.trim().split(/\s+/)[0].toUpperCase();
+      const result = await new Promise((resolve, reject) => {
+        conn.client.query(query, (err, res) => err ? reject(err) : resolve(res));
+      });
+      const rows = result.rows || [];
+      const columns = result.fields ? result.fields.map(f => ({ name: f.name, dataType: f.dataType || 'text' }))
+        : rows.length > 0 ? Object.keys(rows[0]).map(n => ({ name: n, dataType: 'text' })) : [];
+      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
     }
+
+    throw new Error(`executeQuery not supported for type: ${conn.type}`);
+  }
+
+  async _executeMongoQuery(conn, query, startTime) {
+    const q = query.trim();
+    let rows = [], command = 'FIND';
+    try {
+      // Support JSON command format: { "find": "collection", "filter": {}, "limit": 100 }
+      if (q.startsWith('{')) {
+        const cmd = JSON.parse(q);
+        const result = await conn.db.command(cmd);
+        const data = result.cursor?.firstBatch || result.values || (Array.isArray(result) ? result : [result]);
+        rows = data.map(d => this._flattenMongoDoc(d));
+        command = Object.keys(cmd)[0].toUpperCase();
+      } else {
+        // Simple: "find collectionName" or "find collectionName {filter}"
+        const parts = q.split(/\s+/);
+        command = parts[0].toUpperCase();
+        const collName = parts[1] || '';
+        if (['find', 'FIND'].includes(parts[0]) && collName) {
+          let filter = {};
+          try { filter = parts.slice(2).join(' ') ? JSON.parse(parts.slice(2).join(' ')) : {}; } catch {}
+          const docs = await conn.db.collection(collName).find(filter).limit(1000).toArray();
+          rows = docs.map(d => this._flattenMongoDoc(d));
+        } else if (['aggregate', 'AGGREGATE'].includes(parts[0]) && collName) {
+          let pipeline = [];
+          try { pipeline = JSON.parse(parts.slice(2).join(' ')); } catch {}
+          const docs = await conn.db.collection(collName).aggregate(pipeline).toArray();
+          rows = docs.map(d => this._flattenMongoDoc(d));
+        } else {
+          // Try as a raw command
+          const result = await conn.db.command(JSON.parse(q));
+          rows = [this._flattenMongoDoc(result)];
+        }
+      }
+    } catch (err) {
+      throw new Error(`MongoDB query error: ${err.message}. Use JSON format: {"find":"collection","filter":{},"limit":100}`);
+    }
+    const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+    return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+  }
+
+  _flattenMongoDoc(doc) {
+    const out = {};
+    for (const [k, v] of Object.entries(doc)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
+        out[k] = JSON.stringify(v);
+      } else if (Array.isArray(v)) {
+        out[k] = JSON.stringify(v);
+      } else if (v instanceof Date) {
+        out[k] = v.toISOString();
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  async _executeRedisCommand(conn, query, startTime) {
+    const parts = query.trim().split(/\s+/);
+    const command = parts[0].toUpperCase();
+    const args = parts.slice(1);
+    const result = await conn.client.call(command, ...args);
+    let rows = [];
+    if (Array.isArray(result)) {
+      // Pair up key-value if even array (HGETALL-style)
+      if (result.length % 2 === 0 && result.every((v, i) => i % 2 === 0 ? typeof v === 'string' : true)) {
+        for (let i = 0; i < result.length; i += 2) {
+          rows.push({ field: result[i], value: result[i + 1] });
+        }
+      } else {
+        rows = result.map((v, i) => ({ index: i, value: String(v) }));
+      }
+    } else if (result !== null && result !== undefined) {
+      rows = [{ result: String(result) }];
+    }
+    const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+    return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+  }
+
+  async _executeDynamoQuery(conn, query, startTime) {
+    const q = query.trim();
+    const command = q.split(/\s+/)[0].toUpperCase();
+    const { ExecuteStatementCommand } = require('@aws-sdk/client-dynamodb');
+    const { unmarshall } = require('@aws-sdk/util-dynamodb');
+    const result = await conn.client.send(new ExecuteStatementCommand({ Statement: q }));
+    const rows = (result.Items || []).map(item => unmarshall(item));
+    const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
+    return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
   }
 
   async explainQuery(connectionId, query) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'postgres') {
+    if (PG_WIRE.has(conn.type)) {
       const result = await conn.client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) ${query}`);
       return { plan: result.rows.map(r => r['QUERY PLAN']).join('\n') };
     } else if (conn.type === 'clickhouse') {
       const rs = await conn.client.query({ query: `EXPLAIN PLAN ${query}`, format: 'JSONEachRow' });
       const rows = await rs.json();
       return { plan: rows.map(r => JSON.stringify(r)).join('\n') };
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const [rows] = await conn.client.query(`EXPLAIN ${query}`);
       return { plan: rows.map(r => Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' | ')).join('\n') };
+    } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
+      const rows = conn.type === 'sqlite'
+        ? conn.client.prepare(`EXPLAIN QUERY PLAN ${query}`).all()
+        : (await conn.client.execute(`EXPLAIN QUERY PLAN ${query}`)).rows;
+      return { plan: rows.map(r => Object.values(r).join(' | ')).join('\n') };
+    } else if (conn.type === 'mssql') {
+      await conn.client.request().query('SET SHOWPLAN_TEXT ON');
+      const result = await conn.client.request().query(query);
+      await conn.client.request().query('SET SHOWPLAN_TEXT OFF');
+      return { plan: (result.recordset || []).map(r => Object.values(r).join('')).join('\n') };
+    } else if (conn.type === 'snowflake') {
+      const rows = await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: `EXPLAIN ${query}`, complete: (err, _, rows) => err ? reject(err) : resolve(rows || []) });
+      });
+      return { plan: rows.map(r => Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' | ')).join('\n') };
+    } else if (conn.type === 'bigquery') {
+      return { plan: 'BigQuery query plan not available in interactive mode. Check Cloud Console for query insights.' };
+    } else if (conn.type === 'duckdb') {
+      const rows = await conn.client.all(`EXPLAIN ${query}`);
+      return { plan: (rows || []).map(r => Object.values(r).join('\n')).join('\n') };
     }
+    return { plan: `EXPLAIN not supported for ${conn.type}` };
   }
 
   async getDatabases(connectionId) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'postgres') {
+
+    if (PG_WIRE.has(conn.type)) {
       const result = await conn.client.query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname");
       return result.rows.map(r => r.datname);
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const [rows] = await conn.client.query('SHOW DATABASES');
       return rows.map(r => r.Database);
-    } else {
+    } else if (conn.type === 'clickhouse') {
       const rs = await conn.client.query({ query: 'SHOW DATABASES', format: 'JSONEachRow' });
       return (await rs.json()).map(r => r.name);
+    } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
+      return ['main'];
+    } else if (conn.type === 'duckdb') {
+      const rows = await conn.client.all('SHOW DATABASES');
+      return (rows || []).map(r => r.database_name || r.name || String(r));
+    } else if (conn.type === 'mssql') {
+      const result = await conn.client.request().query("SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name");
+      return (result.recordset || []).map(r => r.name);
+    } else if (conn.type === 'mongodb') {
+      const result = await conn.client.db().admin().listDatabases();
+      return result.databases.map(d => d.name);
+    } else if (conn.type === 'redis') {
+      // Redis has 16 databases (0-15)
+      return Array.from({ length: 16 }, (_, i) => String(i));
+    } else if (conn.type === 'cassandra') {
+      const result = await conn.client.execute("SELECT keyspace_name FROM system_schema.keyspaces");
+      return result.rows.map(r => r.keyspace_name);
+    } else if (conn.type === 'snowflake') {
+      const rows = await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: 'SHOW DATABASES', complete: (err, _, rows) => err ? reject(err) : resolve(rows || []) });
+      });
+      return rows.map(r => r.name);
+    } else if (conn.type === 'bigquery') {
+      const [datasets] = await conn.client.getDatasets();
+      return datasets.map(d => d.id);
+    } else if (conn.type === 'libsql') {
+      return ['main'];
+    } else if (conn.type === 'd1') {
+      return [conn.databaseId];
+    } else if (conn.type === 'dynamodb') {
+      return [conn.region || 'us-east-1'];
+    } else if (conn.type === 'vertica') {
+      const result = await new Promise((resolve, reject) => {
+        conn.client.query("SELECT database_name FROM v_catalog.databases", (err, res) => err ? reject(err) : resolve(res));
+      });
+      return (result.rows || []).map(r => r.database_name || r[0]);
     }
+    return [];
   }
 
   async getTables(connectionId, database) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'mysql') {
-      const db = database || conn.activeDb || conn.config.database;
-      if (!db) return [];
-      const [rows] = await conn.client.query(
-        `SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, [db]
-      );
-      return rows.map(r => ({
-        schema: db,
-        name: r.TABLE_NAME,
-        type: r.TABLE_TYPE,
-        fullName: `${db}.${r.TABLE_NAME}`,
-      }));
-    } else if (conn.type === 'postgres') {
-      // Always log which DB we're querying
-      const currentDbRes = await conn.client.query('SELECT current_database() AS db').catch(() => ({ rows: [] }));
-      const currentDb = currentDbRes.rows[0]?.db || '?';
-      console.log(`[DB] getTables → PostgreSQL database: "${currentDb}"`);
 
+    if (PG_WIRE.has(conn.type)) {
       const result = await conn.client.query(
         `SELECT table_schema, table_name, table_type
          FROM information_schema.tables
          WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
          ORDER BY table_schema, table_name`
       );
-      console.log(`[DB] Found ${result.rows.length} tables/views in "${currentDb}"`);
       return result.rows.map(r => ({
-        schema: r.table_schema,
-        name: r.table_name,
-        type: r.table_type, // 'BASE TABLE' or 'VIEW'
-        fullName: `${r.table_schema}.${r.table_name}`
+        schema: r.table_schema, name: r.table_name, type: r.table_type,
+        fullName: `${r.table_schema}.${r.table_name}`,
       }));
-    } else {
+
+    } else if (MYSQL_WIRE.has(conn.type)) {
+      const db = database || conn.activeDb || conn.config.database;
+      if (!db) return [];
+      const [rows] = await conn.client.query(
+        `SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, [db]
+      );
+      return rows.map(r => ({
+        schema: db, name: r.TABLE_NAME, type: r.TABLE_TYPE, fullName: `${db}.${r.TABLE_NAME}`,
+      }));
+
+    } else if (conn.type === 'clickhouse') {
       const q = database ? `SHOW TABLES FROM \`${database.replace(/`/g, '``')}\`` : 'SHOW TABLES';
       const rs = await conn.client.query({ query: q, format: 'JSONEachRow' });
       const dbName = database || conn.config?.database || 'default';
       return (await rs.json()).map(r => ({ schema: dbName, name: r.name, type: 'BASE TABLE', fullName: `${dbName}.${r.name}` }));
+
+    } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
+      const db = 'main';
+      if (conn.type === 'sqlite') {
+        const rows = conn.client.prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name").all();
+        return rows.map(r => ({ schema: db, name: r.name, type: r.type === 'view' ? 'VIEW' : 'BASE TABLE', fullName: r.name }));
+      }
+      const rs = await conn.client.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name");
+      return rs.rows.map(r => ({ schema: db, name: r[0] || r.name, type: (r[1] || r.type) === 'view' ? 'VIEW' : 'BASE TABLE', fullName: r[0] || r.name }));
+
+    } else if (conn.type === 'duckdb') {
+      const schema = database || 'main';
+      const rows = await conn.client.all(`SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_name`);
+      return (rows || []).map(r => ({ schema, name: r.table_name, type: r.table_type === 'VIEW' ? 'VIEW' : 'BASE TABLE', fullName: `${schema}.${r.table_name}` }));
+
+    } else if (conn.type === 'mssql') {
+      const db = database || conn.activeDb || 'dbo';
+      const result = await conn.client.request().query(
+        `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME`
+      );
+      return (result.recordset || []).map(r => ({
+        schema: r.TABLE_SCHEMA, name: r.TABLE_NAME,
+        type: r.TABLE_TYPE === 'VIEW' ? 'VIEW' : 'BASE TABLE',
+        fullName: `${r.TABLE_SCHEMA}.${r.TABLE_NAME}`,
+      }));
+
+    } else if (conn.type === 'mongodb') {
+      const db = conn.db;
+      const collections = await db.listCollections().toArray();
+      return collections.map(c => ({ schema: conn.activeDb, name: c.name, type: 'COLLECTION', fullName: c.name }));
+
+    } else if (conn.type === 'redis') {
+      const keys = await conn.client.keys('*');
+      return keys.slice(0, 200).map(k => ({ schema: conn.activeDb, name: k, type: 'KEY', fullName: k }));
+
+    } else if (conn.type === 'cassandra') {
+      const keyspace = database || conn.activeDb || '';
+      if (!keyspace) return [];
+      const result = await conn.client.execute(
+        `SELECT table_name FROM system_schema.tables WHERE keyspace_name = ?`, [keyspace]
+      );
+      return result.rows.map(r => ({ schema: keyspace, name: r.table_name, type: 'BASE TABLE', fullName: `${keyspace}.${r.table_name}` }));
+
+    } else if (conn.type === 'snowflake') {
+      const rows = await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: 'SHOW TABLES', complete: (err, _, rows) => err ? reject(err) : resolve(rows || []) });
+      });
+      const schema = database || conn.activeDb || '';
+      return rows.map(r => ({ schema, name: r.name, type: 'BASE TABLE', fullName: r.name }));
+
+    } else if (conn.type === 'bigquery') {
+      const datasetId = database || conn.activeDb || '';
+      if (!datasetId) return [];
+      const [tables] = await conn.client.dataset(datasetId).getTables();
+      return tables.map(t => ({ schema: datasetId, name: t.id, type: 'BASE TABLE', fullName: `${datasetId}.${t.id}` }));
+
+    } else if (conn.type === 'd1') {
+      const rs = await this.executeQuery(connectionId, "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name");
+      return rs.rows.map(r => ({ schema: 'main', name: r.name, type: r.type === 'view' ? 'VIEW' : 'BASE TABLE', fullName: r.name }));
+
+    } else if (conn.type === 'dynamodb') {
+      const { ListTablesCommand } = require('@aws-sdk/client-dynamodb');
+      let tables = [], lastKey;
+      do {
+        const result = await conn.client.send(new ListTablesCommand({ ExclusiveStartTableName: lastKey }));
+        tables.push(...(result.TableNames || []));
+        lastKey = result.LastEvaluatedTableName;
+      } while (lastKey);
+      return tables.map(name => ({ schema: conn.region, name, type: 'TABLE', fullName: name }));
+
+    } else if (conn.type === 'vertica') {
+      const result = await new Promise((resolve, reject) => {
+        conn.client.query(
+          `SELECT table_schema, table_name FROM v_catalog.tables ORDER BY table_schema, table_name`,
+          (err, res) => err ? reject(err) : resolve(res)
+        );
+      });
+      return (result.rows || []).map(r => ({
+        schema: r.table_schema || r[0], name: r.table_name || r[1],
+        type: 'BASE TABLE', fullName: `${r.table_schema || r[0]}.${r.table_name || r[1]}`,
+      }));
     }
+    return [];
   }
 
   async getCurrentDatabase(connectionId) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'postgres') {
+
+    if (PG_WIRE.has(conn.type)) {
       const res = await conn.client.query('SELECT current_database() AS db, current_user AS usr, version() AS ver');
       return { db: res.rows[0]?.db, user: res.rows[0]?.usr, version: res.rows[0]?.ver };
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const [rows] = await conn.client.query('SELECT DATABASE() AS db, USER() AS usr, VERSION() AS ver');
-      return { db: rows[0]?.db || conn.activeDb, user: rows[0]?.usr, version: `MySQL ${rows[0]?.ver}` };
-    } else {
+      return { db: rows[0]?.db || conn.activeDb, user: rows[0]?.usr, version: `${conn.type === 'mariadb' ? 'MariaDB' : 'MySQL'} ${rows[0]?.ver}` };
+    } else if (conn.type === 'clickhouse') {
       return { db: conn.config?.database || 'default', user: conn.config?.username || 'default', version: 'ClickHouse' };
+    } else if (conn.type === 'mssql') {
+      const r = await conn.client.request().query('SELECT DB_NAME() AS db, SYSTEM_USER AS usr, @@VERSION AS ver');
+      return { db: r.recordset[0]?.db, user: r.recordset[0]?.usr, version: r.recordset[0]?.ver };
+    } else if (conn.type === 'dynamodb') {
+      return { db: conn.region, user: conn.config?.username || '', version: 'Amazon DynamoDB' };
+    } else if (conn.type === 'bigquery') {
+      return { db: conn.activeDb, user: '', version: 'Google BigQuery' };
     }
+    return { db: conn.activeDb || conn.config?.database || '', user: conn.config?.username || '', version: conn.type };
   }
 
   async switchDatabase(connectionId, newDatabase) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'mysql') {
+    const cfg = conn.config;
+
+    if (MYSQL_WIRE.has(conn.type)) {
       const mysql = require('mysql2/promise');
-      const cfg = conn.config;
-      try { await conn.client.end(); } catch (e) { /* ignore */ }
+      try { await conn.client.end(); } catch {}
       const pool = mysql.createPool({
         host: cfg.host, port: parseInt(cfg.port) || 3306,
         database: newDatabase, user: cfg.username, password: cfg.password || '',
         ssl: cfg.ssl ? { rejectUnauthorized: false } : undefined,
         connectionLimit: 5, timezone: '+00:00', multipleStatements: true,
       });
-      this.connections.set(connectionId, { client: pool, config: { ...cfg, database: newDatabase }, type: 'mysql', activeDb: newDatabase });
-      console.log(`[DB] Switched MySQL to database: "${newDatabase}"`);
+      this.connections.set(connectionId, { client: pool, config: { ...cfg, database: newDatabase }, type: conn.type, activeDb: newDatabase });
+      return { success: true, activeDb: newDatabase };
+
+    } else if (PG_WIRE.has(conn.type)) {
+      try { await conn.client.end(); } catch {}
+      const defaultPort = conn.type === 'cockroachdb' ? 26257 : conn.type === 'redshift' ? 5439 : 5432;
+      const pool = new Pool({
+        host: cfg.host, port: parseInt(cfg.port) || defaultPort,
+        database: newDatabase, user: cfg.username, password: cfg.password,
+        ssl: cfg.ssl ? { rejectUnauthorized: false } : false,
+        max: 5, options: '-c TimeZone=UTC',
+      });
+      pool.on('connect', (c) => { c.query("SET TimeZone = 'UTC'").catch(() => {}); });
+      const client = await pool.connect();
+      client.release();
+      this.connections.set(connectionId, { client: pool, config: { ...cfg, database: newDatabase }, type: conn.type, activeDb: newDatabase });
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'mssql') {
+      const sql = require('mssql');
+      try { await conn.client.close(); } catch {}
+      const pool = await new sql.ConnectionPool({
+        server: cfg.host, port: parseInt(cfg.port) || 1433,
+        database: newDatabase, user: cfg.username, password: cfg.password || '',
+        options: { trustServerCertificate: !cfg.ssl, encrypt: !!cfg.ssl }, pool: { max: 5 },
+      }).connect();
+      this.connections.set(connectionId, { client: pool, config: { ...cfg, database: newDatabase }, type: 'mssql', activeDb: newDatabase, sql });
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'mongodb') {
+      conn.db = conn.client.db(newDatabase);
+      conn.activeDb = newDatabase;
+      this.connections.set(connectionId, { ...conn, activeDb: newDatabase });
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'redis') {
+      await conn.client.select(parseInt(newDatabase) || 0);
+      conn.activeDb = newDatabase;
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'cassandra') {
+      await conn.client.execute(`USE "${newDatabase}"`);
+      conn.activeDb = newDatabase;
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'snowflake') {
+      await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: `USE DATABASE "${newDatabase}"`, complete: (err) => err ? reject(err) : resolve() });
+      });
+      conn.activeDb = newDatabase;
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'bigquery') {
+      conn.activeDb = newDatabase;
+      return { success: true, activeDb: newDatabase };
+
+    } else if (conn.type === 'clickhouse') {
+      conn.activeDb = newDatabase;
+      conn.config = { ...cfg, database: newDatabase };
       return { success: true, activeDb: newDatabase };
     }
-    if (conn.type !== 'postgres') throw new Error('Database switching only supported for PostgreSQL and MySQL');
 
-    console.log(`[DB] Switching database → "${newDatabase}"`);
-    const cfg = conn.config;
-
-    // Close old pool
-    try { await conn.client.end(); } catch (e) { /* ignore */ }
-
-    // New pool to the selected database
-    const pool = new Pool({
-      host: cfg.host,
-      port: parseInt(cfg.port) || 5432,
-      database: newDatabase,
-      user: cfg.username,
-      password: cfg.password,
-      ssl: cfg.ssl ? { rejectUnauthorized: false } : false,
-      max: 5,
-      options: '-c TimeZone=UTC',
-    });
-    pool.on('connect', (client) => {
-      client.query("SET TimeZone = 'UTC'").catch(() => {});
-    });
-    const client = await pool.connect();
-    client.release();
-
-    this.connections.set(connectionId, { client: pool, config: { ...cfg, database: newDatabase }, type: 'postgres', activeDb: newDatabase });
-    console.log(`[DB] Switched to database: "${newDatabase}"`);
+    // For types that don't support switching (sqlite, libsql, d1, dynamodb, vertica, duckdb)
+    conn.activeDb = newDatabase;
     return { success: true, activeDb: newDatabase };
   }
 
   async getTableStructure(connectionId, tableName) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'mysql') {
-      const parts = tableName.split('.');
+    const parts = tableName.split('.');
+    const table = parts[parts.length - 1];
+
+    if (PG_WIRE.has(conn.type)) {
+      const schema = parts.length > 1 ? parts[0] : 'public';
+      const result = await conn.client.query(
+        `SELECT column_name, data_type, udt_name, is_nullable, column_default
+         FROM information_schema.columns
+         WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`, [schema, table]
+      );
+      return result.rows;
+
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const db = parts.length > 1 ? parts[0] : (conn.activeDb || conn.config.database);
-      const table = parts.length > 1 ? parts[1] : parts[0];
       const [rows] = await conn.client.query(
         `SELECT COLUMN_NAME AS column_name, DATA_TYPE AS data_type, COLUMN_TYPE AS udt_name,
                 IS_NULLABLE AS is_nullable, COLUMN_DEFAULT AS column_default
@@ -412,21 +954,83 @@ class DatabaseManager {
          ORDER BY ORDINAL_POSITION`, [db, table]
       );
       return rows;
-    } else if (conn.type === 'postgres') {
-      const parts = tableName.split('.');
-      const schema = parts.length > 1 ? parts[0] : 'public';
-      const table = parts.length > 1 ? parts[1] : parts[0];
-      const result = await conn.client.query(
-        `SELECT column_name, data_type, udt_name, is_nullable, column_default
-         FROM information_schema.columns
-         WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`, [schema, table]
-      );
-      return result.rows;
-    } else {
-      const quotedChTable = tableName.split('.').map(p => `\`${p.replace(/`/g, '``')}\``).join('.');
-      const rs = await conn.client.query({ query: `DESCRIBE TABLE ${quotedChTable}`, format: 'JSONEachRow' });
+
+    } else if (conn.type === 'clickhouse') {
+      const quoted = tableName.split('.').map(p => `\`${p.replace(/`/g, '``')}\``).join('.');
+      const rs = await conn.client.query({ query: `DESCRIBE TABLE ${quoted}`, format: 'JSONEachRow' });
       return await rs.json();
+
+    } else if (conn.type === 'sqlite' || conn.type === 'libsql' || conn.type === 'd1') {
+      if (conn.type === 'sqlite') {
+        const rows = conn.client.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all();
+        return rows.map(r => ({ column_name: r.name, data_type: r.type, is_nullable: r.notnull ? 'NO' : 'YES', column_default: r.dflt_value }));
+      }
+      const rs = await this.executeQuery(connectionId, `PRAGMA table_info(${JSON.stringify(table)})`);
+      return rs.rows.map(r => ({ column_name: r.name, data_type: r.type, is_nullable: r.notnull ? 'NO' : 'YES', column_default: r.dflt_value }));
+
+    } else if (conn.type === 'duckdb') {
+      const schema = parts.length > 1 ? parts[0] : 'main';
+      const rows = await conn.client.all(
+        `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = '${schema}' AND table_name = '${table}' ORDER BY ordinal_position`
+      );
+      return (rows || []).map(r => ({ column_name: r.column_name, data_type: r.data_type, is_nullable: r.is_nullable, column_default: r.column_default }));
+
+    } else if (conn.type === 'mssql') {
+      const schema = parts.length > 1 ? parts[0] : 'dbo';
+      const result = await conn.client.request().query(
+        `SELECT COLUMN_NAME AS column_name, DATA_TYPE AS data_type, IS_NULLABLE AS is_nullable, COLUMN_DEFAULT AS column_default
+         FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '${schema}' AND TABLE_NAME = '${table}' ORDER BY ORDINAL_POSITION`
+      );
+      return result.recordset || [];
+
+    } else if (conn.type === 'mongodb') {
+      const sample = await conn.db.collection(table).findOne({});
+      if (!sample) return [];
+      return Object.entries(sample).map(([k, v]) => ({
+        column_name: k, data_type: typeof v, is_nullable: 'YES', column_default: null,
+      }));
+
+    } else if (conn.type === 'redis') {
+      const type = await conn.client.type(table);
+      return [{ column_name: 'type', data_type: 'string', is_nullable: 'NO', column_default: type }];
+
+    } else if (conn.type === 'cassandra') {
+      const keyspace = parts.length > 1 ? parts[0] : conn.activeDb;
+      const result = await conn.client.execute(
+        `SELECT column_name, type AS data_type FROM system_schema.columns WHERE keyspace_name = ? AND table_name = ?`,
+        [keyspace, table]
+      );
+      return result.rows.map(r => ({ column_name: r.column_name, data_type: r.data_type, is_nullable: 'YES', column_default: null }));
+
+    } else if (conn.type === 'snowflake') {
+      const rows = await new Promise((resolve, reject) => {
+        conn.client.execute({ sqlText: `DESCRIBE TABLE "${table}"`, complete: (err, _, rows) => err ? reject(err) : resolve(rows || []) });
+      });
+      return rows.map(r => ({ column_name: r.name, data_type: r.type, is_nullable: r.null === 'Y' ? 'YES' : 'NO', column_default: r.default }));
+
+    } else if (conn.type === 'bigquery') {
+      const dataset = parts.length > 1 ? parts[0] : conn.activeDb;
+      const [metadata] = await conn.client.dataset(dataset).table(table).getMetadata();
+      return (metadata.schema?.fields || []).map(f => ({ column_name: f.name, data_type: f.type, is_nullable: f.mode === 'REQUIRED' ? 'NO' : 'YES', column_default: null }));
+
+    } else if (conn.type === 'dynamodb') {
+      const { DescribeTableCommand } = require('@aws-sdk/client-dynamodb');
+      const result = await conn.client.send(new DescribeTableCommand({ TableName: table }));
+      const t = result.Table;
+      return (t.AttributeDefinitions || []).map(a => ({
+        column_name: a.AttributeName, data_type: a.AttributeType, is_nullable: 'YES', column_default: null,
+      }));
+
+    } else if (conn.type === 'vertica') {
+      const result = await new Promise((resolve, reject) => {
+        conn.client.query(
+          `SELECT column_name, data_type, is_nullable, column_default FROM v_catalog.columns WHERE table_schema = '${parts[0] || 'public'}' AND table_name = '${table}' ORDER BY ordinal_position`,
+          (err, res) => err ? reject(err) : resolve(res)
+        );
+      });
+      return (result.rows || []).map(r => ({ column_name: r.column_name || r[0], data_type: r.data_type || r[1], is_nullable: r.is_nullable || r[2], column_default: r.column_default || r[3] }));
     }
+    return [];
   }
 
   async getFkImpact(connectionId, tableName, rows) {
@@ -435,7 +1039,7 @@ class DatabaseManager {
     const parts = tableName.split('.');
     const isTruncate = rows.length === 0;
 
-    if (conn.type === 'postgres') {
+    if (PG_WIRE.has(conn.type)) {
       const schema = parts.length > 1 ? parts[0] : 'public';
       const table  = parts.length > 1 ? parts[1] : parts[0];
       const fkRes = await conn.client.query(`
@@ -474,7 +1078,7 @@ class DatabaseManager {
       }
       return refs;
 
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const db    = parts.length > 1 ? parts[0] : (conn.activeDb || conn.config.database);
       const table = parts.length > 1 ? parts[1] : parts[0];
       const [fkRows] = await conn.client.query(`
@@ -511,14 +1115,14 @@ class DatabaseManager {
       }
       return refs;
     }
-    return []; // ClickHouse: no FK constraints
+    return []; // No FK constraint support for this DB type
   }
 
   async getSchemaFull(connectionId) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       const db = conn.activeDb || conn.config.database;
       const [colRows] = await conn.client.query(`
         SELECT t.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE
@@ -548,7 +1152,7 @@ class DatabaseManager {
           targetTable: `${db}.${fk.REFERENCED_TABLE_NAME}`, targetColumn: fk.REFERENCED_COLUMN_NAME,
         })),
       };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       const tablesRes = await conn.client.query(`
         SELECT t.table_schema, t.table_name, c.column_name, c.data_type, c.is_nullable
         FROM information_schema.tables t
@@ -597,7 +1201,7 @@ class DatabaseManager {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       const parts = tableName.split('.');
       const db = parts.length > 1 ? parts[0] : (conn.activeDb || conn.config.database);
       const table = parts.length > 1 ? parts[1] : parts[0];
@@ -623,7 +1227,7 @@ class DatabaseManager {
         WHERE TC.CONSTRAINT_TYPE = 'FOREIGN KEY' AND KCU.TABLE_SCHEMA = ? AND KCU.TABLE_NAME = ?
       `, [db, table]).catch(() => [[]]);
       return { indexes: idxRows, foreignKeys: fkRows };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       const parts = tableName.split('.');
       const schema = parts.length > 1 ? parts[0] : 'public';
       const table = parts.length > 1 ? parts[1] : parts[0];
@@ -667,7 +1271,7 @@ class DatabaseManager {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       const [userRows] = await conn.client.query(
         `SELECT User AS rolname, Host, Super_priv, Create_db_priv, Create_user_priv, account_locked FROM mysql.user ORDER BY User`
       ).catch(() => [[]]);
@@ -686,7 +1290,7 @@ class DatabaseManager {
         })),
         databases: dbRows.map(r => ({ datname: r.datname, owner: '', size: '' })),
       };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       const rolesRes = await conn.client.query(`
         SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, 
                rolcanlogin, rolreplication, rolconnlimit, rolvaliduntil
@@ -708,7 +1312,7 @@ class DatabaseManager {
   async createUser(connectionId, username, password, options) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       const safeUser = username.replace(/'/g, "''");
       const safePass = (password || '').replace(/'/g, "''");
       await conn.client.query(`CREATE USER '${safeUser}'@'%' IDENTIFIED BY '${safePass}'`);
@@ -719,7 +1323,7 @@ class DatabaseManager {
       }
       await conn.client.query('FLUSH PRIVILEGES');
       return { success: true };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       const opts = [];
       if (options.superuser) opts.push('SUPERUSER');
       if (options.createdb) opts.push('CREATEDB');
@@ -736,11 +1340,11 @@ class DatabaseManager {
   async dropUser(connectionId, username) {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       await conn.client.query(`DROP USER IF EXISTS '${username.replace(/'/g, "''")}'@'%'`);
       await conn.client.query('FLUSH PRIVILEGES');
       return { success: true };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       await conn.client.query(`DROP USER IF EXISTS "${username.replace(/"/g, '""')}"`);
       return { success: true };
     }
@@ -752,7 +1356,7 @@ class DatabaseManager {
     const conn = this.connections.get(connectionId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'mysql') {
+    if (MYSQL_WIRE.has(conn.type)) {
       const [processRows] = await conn.client.query('SHOW PROCESSLIST').catch(() => [[]]);
       const [statusRows] = await conn.client.query('SHOW GLOBAL STATUS').catch(() => [[]]);
       const [tableRows] = await conn.client.query(`
@@ -789,7 +1393,7 @@ class DatabaseManager {
         locks: [],
         timestamp: Date.now(),
       };
-    } else if (conn.type === 'postgres') {
+    } else if (PG_WIRE.has(conn.type)) {
       const [actConns, dbStats, cacheHit, tableStats, locks] = await Promise.all([
         conn.client.query(`
           SELECT count(*) AS count, state 
@@ -958,7 +1562,7 @@ class DatabaseManager {
     const conn = this.connections.get(connId);
     if (!conn) throw new Error('Connection not found');
 
-    if (conn.type === 'postgres') {
+    if (PG_WIRE.has(conn.type)) {
       // Use pg_catalog + format_type so we get exact SQL types (integer, character varying(255),
       // numeric(10,2), etc.) instead of udt_name which produces invalid values like int4(32,0).
       const res = await conn.client.query(`
@@ -993,7 +1597,7 @@ class DatabaseManager {
       }
       return Array.from(tables.values());
 
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       const db = conn.activeDb || conn.config.database;
       const [rows] = await conn.client.query(`
         SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name,
@@ -1064,7 +1668,9 @@ class DatabaseManager {
     if (!srcConn) throw new Error('Source connection not found');
     if (!tgtConn) throw new Error('Target connection not found');
     if (srcConnId === tgtConnId) throw new Error('Source and target must be different connections');
-    if (srcConn.type !== tgtConn.type) throw new Error(`Cannot compare ${srcConn.type} with ${tgtConn.type} — both connections must use the same database type`);
+    const srcFamily = PG_WIRE.has(srcConn.type) ? 'postgres' : MYSQL_WIRE.has(srcConn.type) ? 'mysql' : srcConn.type;
+    const tgtFamily = PG_WIRE.has(tgtConn.type) ? 'postgres' : MYSQL_WIRE.has(tgtConn.type) ? 'mysql' : tgtConn.type;
+    if (srcFamily !== tgtFamily) throw new Error(`Cannot compare ${srcConn.type} with ${tgtConn.type} — both connections must use the same database type`);
     const [srcTables, tgtTables] = await Promise.all([
       this.getSchemaForCompare(srcConnId),
       this.getSchemaForCompare(tgtConnId),
@@ -1188,8 +1794,8 @@ class DatabaseManager {
     const errors = [];
     for (const stmt of statements) {
       try {
-        if (conn.type === 'postgres') await conn.client.query(stmt);
-        else if (conn.type === 'mysql') await conn.client.query(stmt);
+        if (PG_WIRE.has(conn.type))         await conn.client.query(stmt);
+        else if (MYSQL_WIRE.has(conn.type)) await conn.client.query(stmt);
         else await conn.client.query({ query: stmt, format: 'JSONEachRow' });
         executed++;
       } catch (err) {
@@ -1244,7 +1850,7 @@ class DatabaseManager {
     const w = (text) => fs.appendFileSync(targetPath, text, 'utf-8');
 
     // ── PostgreSQL SQL export ──────────────────────────────────────────────────
-    if (conn.type === 'postgres') {
+    if (PG_WIRE.has(conn.type)) {
       w(`SET standard_conforming_strings = on;\n`);
       w(`SET client_encoding = 'UTF8';\n\n`);
 
@@ -1661,7 +2267,7 @@ class DatabaseManager {
       } catch (_) {}
 
     // ── MySQL SQL export ───────────────────────────────────────────────────────
-    } else if (conn.type === 'mysql') {
+    } else if (MYSQL_WIRE.has(conn.type)) {
       w(`SET FOREIGN_KEY_CHECKS = 0;\nSET NAMES utf8mb4;\n\n`);
 
       for (const table of baseTables) {

@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld('dbAccess', {
 
   // --- Licensing ---
   license: {
-    activate:     (apiKey) => ipcRenderer.invoke('license:activate', apiKey),
+    activate:     (apiKey, name, email) => ipcRenderer.invoke('license:activate', apiKey, name, email),
     validate:     ()       => ipcRenderer.invoke('license:validate'),
     checkVersion: ()       => ipcRenderer.invoke('license:check-version'),
     clear:        ()       => ipcRenderer.invoke('license:clear'),

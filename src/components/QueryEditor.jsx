@@ -218,6 +218,7 @@ export default function QueryEditor({
   value, onChange, onRun, onExport, onImport, isRunning,
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
+  theme: appTheme = 'dark',
 }) {
   const [editorHeight, setEditorHeight] = useState(220)
   const [showImportInput, setShowImportInput] = useState(false)
@@ -739,7 +740,7 @@ export default function QueryEditor({
           value={value}
           height="100%"
           style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
-          theme={oneDark}
+          theme={appTheme === 'dark' ? oneDark : 'light'}
           extensions={cmExtensions}
           onChange={onChange}
           onCreateEditor={(view) => { editorViewRef.current = view }}

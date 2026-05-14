@@ -594,7 +594,7 @@ function MainApp() {
 
   const handleScaffoldMaterializedView = useCallback((connId) => {
     const conn = connections.find(c => c.id === connId)
-    const isPostgres = conn?.type === 'postgres'
+    const isPostgres = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(conn?.type)
     const tabId = genId()
     const scaffold = isPostgres
       ? `CREATE MATERIALIZED VIEW public.my_materialized_view AS\nSELECT\n  column1,\n  column2,\n  COUNT(*) AS total\nFROM public.source_table\nGROUP BY column1, column2;`
@@ -637,23 +637,25 @@ function MainApp() {
     const connType = conn?.type || 'postgres'
     try {
       showStatus(`Dropping ${tableNames.length} table${tableNames.length > 1 ? 's' : ''}...`, 'info')
-      if (connType === 'mysql' && cascade) {
+      const isMysqlWire = ['mysql', 'mariadb'].includes(connType)
+      const isPgWire = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connType)
+      if (isMysqlWire && cascade) {
         await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 0;')
       }
       for (const tableName of tableNames) {
-        const sql = connType === 'postgres'
+        const sql = isPgWire
           ? `DROP TABLE ${tableName}${cascade ? ' CASCADE' : ''};`
           : `DROP TABLE ${tableName};`
         const result = await window.dbAccess.executeQuery(connId, sql)
         if (!result.success) {
-          if (connType === 'mysql' && cascade) {
+          if (isMysqlWire && cascade) {
             await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;').catch(() => {})
           }
           showStatus(`Failed to drop ${tableName.split('.').pop()}: ${result.error}`, 'error')
           return
         }
       }
-      if (connType === 'mysql' && cascade) {
+      if (isMysqlWire && cascade) {
         await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;')
       }
       showStatus(
@@ -783,7 +785,7 @@ function MainApp() {
 
     const tabId = genId()
     const connObj = connections.find(c => c.id === connId)
-    const isPostgres = !connObj?.type || connObj?.type === 'postgres'
+    const isPostgres = !connObj?.type || ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connObj?.type)
     const query = isPostgres
       ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT 100;`
       : `SELECT * FROM ${tableName} LIMIT 100;`
@@ -991,6 +993,7 @@ function MainApp() {
                     connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
                     queryError={activeTab.queryError}
                     onRunSqlFile={() => handleRunSqlFile(activeTab.connectionId)}
+                    theme={theme}
                   />
                   <ResultsGrid
                     results={activeTab.results}
@@ -1164,15 +1167,34 @@ function MainApp() {
 // times regardless of license state (Rules of Hooks compliance).
 export default function App() {
   const [licenseStatus, setLicenseStatus] = useState('checking')
+  const [startupMessage, setStartupMessage]  = useState('')
 
   useEffect(() => {
+    // Fail CLOSED: if the license bridge is missing for any reason, block access.
     if (!window.dbAccess?.license) {
-      setLicenseStatus('valid')
+      setLicenseStatus('invalid')
       return
     }
+
+    // 15-second hard timeout — if IPC hangs for any reason, block access.
+    const timeout = setTimeout(() => setLicenseStatus('invalid'), 15000)
+
     window.dbAccess.license.validate()
-      .then(result => setLicenseStatus(result.valid ? 'valid' : 'invalid'))
-      .catch(() => setLicenseStatus('invalid'))
+      .then(result => {
+        clearTimeout(timeout)
+        if (result.valid) {
+          setLicenseStatus('valid')
+        } else {
+          if (result.reason) setStartupMessage(result.reason)
+          setLicenseStatus('invalid')
+        }
+      })
+      .catch(() => {
+        clearTimeout(timeout)
+        setLicenseStatus('invalid')
+      })
+
+    return () => clearTimeout(timeout)
   }, [])
 
   if (licenseStatus === 'checking') {
@@ -1186,7 +1208,10 @@ export default function App() {
   }
 
   if (licenseStatus === 'invalid') {
-    return <ActivationScreen onActivated={() => setLicenseStatus('valid')} />
+    return <ActivationScreen
+      startupMessage={startupMessage}
+      onActivated={() => setLicenseStatus('valid')}
+    />
   }
 
   return <MainApp />

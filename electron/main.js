@@ -1,15 +1,23 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const { registerIpcHandlers } = require('./ipc-handlers');
+
+// Force userData to the same path the NSIS installer uses ($APPDATA\DB Access),
+// regardless of what app.getName() returns in packaged vs dev mode.
+// Must be called before app.ready and before any app.getPath('userData') calls.
+app.setPath('userData', path.join(app.getPath('appData'), 'DB Access'));
 
 // Fix: suppress GPU disk-cache Access Denied errors on Windows.
 // Must be called BEFORE app.whenReady() and BEFORE requiring license.js
 // (which calls app.getPath after ready).
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
-// license.js is required here (after the switch above) but its path constants
-// are computed lazily inside functions, so app.getPath is never called before ready.
-const licenseManager = require('./license');
+// In production the sensitive modules are V8 bytecode (.jsc).
+// require('bytenode') registers the .jsc extension handler so subsequent
+// require() calls resolve .jsc files transparently.
+if (app.isPackaged) require('bytenode');
+
+const licenseManager         = require(app.isPackaged ? './license.jsc'      : './license');
+const { registerIpcHandlers } = require(app.isPackaged ? './ipc-handlers.jsc' : './ipc-handlers');
 
 let mainWindow;
 
@@ -46,8 +54,8 @@ function createWindow() {
 
 // ── License IPC handlers ───────────────────────────────────────────────────────
 function registerLicenseHandlers() {
-  ipcMain.handle('license:activate', async (_event, apiKey) => {
-    return await licenseManager.activateLicense(apiKey);
+  ipcMain.handle('license:activate', async (_event, apiKey, customerName, customerEmail) => {
+    return await licenseManager.activateLicense(apiKey, customerName, customerEmail);
   });
 
   ipcMain.handle('license:validate', async () => {
