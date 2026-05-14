@@ -1,0 +1,96 @@
+.statusbar {
+  height: var(--statusbar-height); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 12px;
+  background: var(--bg-secondary); border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0; z-index: 100;
+}
+.statusbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.status-info { background: var(--text-tertiary); }
+.status-success { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.status-error { background: var(--accent-red); box-shadow: 0 0 6px var(--accent-red); }
+.status-text {
+  font-size: 11px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0;
+}
+.status-text-info { color: var(--text-tertiary); }
+.status-text-success { color: var(--accent-green); }
+.status-text-error { color: var(--accent-red); }
+
+.statusbar-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+.safe-mode-toggle {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  transition: all var(--transition-fast); cursor: pointer;
+}
+.safe-mode-toggle.enabled {
+  color: var(--accent-green); background: var(--accent-green-bg);
+}
+.safe-mode-toggle.disabled {
+  color: var(--accent-red); background: var(--accent-red-bg);
+}
+.safe-mode-toggle:hover { opacity: 0.85; }
+
+.status-connection {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.status-conn-name { font-weight: 500; }
+.status-db-name { color: var(--accent-cyan); font-weight: 500; }
+.status-conn-port { color: var(--text-tertiary); }
+
+.status-conncount {
+  font-size: 10px; color: var(--text-tertiary); font-weight: 500;
+}
+
+.theme-toggle {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--radius-sm);
+  color: var(--accent-yellow);
+  background: color-mix(in srgb, var(--accent-yellow) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-yellow) 30%, transparent);
+  transition: all var(--transition-fast);
+}
+.theme-toggle:hover {
+  background: color-mix(in srgb, var(--accent-yellow) 22%, transparent);
+  border-color: var(--accent-yellow);
+}
+.delete-history-btn {
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  height: 22px; padding: 0 6px; border-radius: var(--radius-sm);
+  color: var(--text-tertiary); transition: all var(--transition-fast);
+  position: relative;
+}
+.delete-history-btn:hover { background: var(--bg-hover); color: var(--accent-red); }
+.delete-history-btn.has-entries { color: var(--accent-red); }
+.delete-history-badge {
+  font-size: 9px; font-weight: 700; min-width: 14px; height: 14px;
+  background: var(--accent-red); color: white; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px;
+}
+.settings-gear-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--radius-sm);
+  color: var(--text-tertiary); transition: all var(--transition-fast);
+}
+.settings-gear-btn:hover {
+  background: var(--bg-hover); color: var(--accent-primary);
+}
+
+.statusbar-compare-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 10px; border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+  color: var(--accent-cyan); background: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 30%, transparent);
+  cursor: pointer; transition: all var(--transition-fast); flex-shrink: 0;
+  margin: 0 16px;
+}
+.statusbar-compare-btn:hover {
+  background: color-mix(in srgb, var(--accent-cyan) 22%, transparent);
+  border-color: var(--accent-cyan);
+}

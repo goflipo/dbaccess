@@ -1,0 +1,62 @@
+.app {
+  display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden;
+}
+.app-titlebar {
+  height: var(--titlebar-height); background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; padding: 0 16px;
+  -webkit-app-region: drag; flex-shrink: 0; z-index: 100;
+}
+.app-titlebar-drag {
+  display: flex; align-items: center; gap: 10px; color: var(--text-secondary); font-size: 13px;
+}
+.app-title { font-weight: 600; letter-spacing: 0.5px; }
+.app-titlebar-help {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-titlebar-help:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.app-body { display: flex; flex: 1; overflow: hidden; }
+.app-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.app-workspace {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+.app-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-secondary);
+}
+.app-empty-content {
+  text-align: center; animation: scaleIn 0.3s ease;
+}
+.app-empty-content svg { margin-bottom: 20px; opacity: 0.4; }
+.app-empty-content h2 {
+  font-size: 22px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;
+}
+.app-empty-content p {
+  color: var(--text-secondary); margin-bottom: 24px; font-size: 14px;
+}
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 24px; border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+  color: white; font-weight: 600; font-size: 14px;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 12px rgba(108, 123, 247, 0.3);
+  -webkit-app-region: no-drag;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(108, 123, 247, 0.4);
+}

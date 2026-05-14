@@ -1,0 +1,88 @@
+.open-anything-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 15vh; z-index: 1000; animation: fadeIn 0.15s ease;
+}
+
+.open-anything-modal {
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  width: 520px; max-height: 420px; display: flex; flex-direction: column;
+  animation: scaleIn 0.2s ease; overflow: hidden;
+}
+
+.open-anything-search {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px; border-bottom: 1px solid var(--border-subtle);
+}
+
+.open-anything-search svg {
+  color: var(--text-tertiary); flex-shrink: 0;
+}
+
+.open-anything-search input {
+  flex: 1; background: transparent; border: none;
+  color: var(--text-primary); font-size: 15px; outline: none;
+  font-weight: 400;
+}
+
+.open-anything-search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.open-anything-results {
+  flex: 1; overflow-y: auto; padding: 4px;
+}
+
+.open-anything-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: var(--radius-md);
+  cursor: pointer; transition: background var(--transition-fast);
+}
+
+.open-anything-item:hover,
+.open-anything-item.selected {
+  background: var(--bg-hover);
+}
+
+.open-anything-item.selected {
+  background: var(--accent-primary-bg);
+}
+
+.item-icon {
+  color: var(--accent-cyan); flex-shrink: 0;
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  background: rgba(78, 205, 196, 0.08); border-radius: var(--radius-sm);
+}
+
+.item-info {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+
+.item-name {
+  font-size: 13px; font-weight: 500; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.item-meta {
+  font-size: 11px; color: var(--text-tertiary);
+}
+
+.item-enter {
+  font-size: 14px; color: var(--text-tertiary);
+  background: var(--bg-elevated); padding: 2px 8px;
+  border-radius: var(--radius-sm); font-weight: 600;
+}
+
+.open-anything-empty {
+  padding: 24px; text-align: center; color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.open-anything-footer {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 10px 18px; background: var(--bg-primary);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px; color: var(--text-tertiary);
+}

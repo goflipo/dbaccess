@@ -1,0 +1,135 @@
+.dtm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 8000;
+}
+
+.dtm-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 460px; max-width: 94vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.dtm-header {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 20px 20px 16px;
+  background: color-mix(in srgb, #ef4444 8%, var(--bg-secondary));
+  border-bottom: 1px solid color-mix(in srgb, #ef4444 20%, var(--border));
+  position: relative;
+}
+
+.dtm-header-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 15%, var(--bg-tertiary));
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: #ef4444;
+}
+
+.dtm-title { font-size: 15px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.dtm-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+.dtm-close {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 2px;
+  opacity: 0.6;
+}
+.dtm-close:hover { opacity: 1; }
+
+.dtm-body {
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+/* Table chips (multi-select) */
+.dtm-tables-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 130px; overflow-y: auto;
+  padding: 10px; background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+}
+
+.dtm-table-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 6px;
+  background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+  font-size: 12px; color: var(--text-secondary);
+  font-family: monospace;
+}
+
+/* CASCADE toggle */
+.dtm-cascade-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px; border-radius: 8px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+  cursor: pointer; user-select: none;
+}
+.dtm-cascade-row:hover { background: var(--bg-hover); }
+
+.dtm-checkbox {
+  width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+  border: 2px solid var(--border); background: var(--bg-secondary);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; margin-top: 1px;
+}
+.dtm-checkbox.checked { background: #6366f1; border-color: #6366f1; }
+
+.dtm-cascade-text { display: flex; flex-direction: column; gap: 3px; }
+.dtm-cascade-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.dtm-cascade-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+
+/* Info note (MySQL) */
+.dtm-info-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 11px; border-radius: 6px;
+  background: color-mix(in srgb, #3b82f6 8%, var(--bg-tertiary));
+  border: 1px solid color-mix(in srgb, #3b82f6 25%, var(--border));
+  font-size: 11.5px; color: var(--text-secondary);
+}
+.dtm-info-note svg { flex-shrink: 0; margin-top: 1px; color: #60a5fa; }
+.dtm-info-note code { background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+
+/* Warning box */
+.dtm-warning-box {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 8%, var(--bg-tertiary));
+  border: 1px solid color-mix(in srgb, #ef4444 25%, var(--border));
+  font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+}
+.dtm-warning-box svg { flex-shrink: 0; margin-top: 1px; }
+.dtm-warning-box strong { color: #f87171; }
+
+/* Footer */
+.dtm-footer {
+  display: flex; justify-content: flex-end; align-items: center; gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.dtm-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  border: 1px solid; transition: all 0.15s;
+}
+
+.dtm-btn-cancel {
+  background: var(--bg-secondary); border-color: var(--border);
+  color: var(--text-secondary);
+}
+.dtm-btn-cancel:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.dtm-btn-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border-color: transparent; color: white;
+  box-shadow: 0 2px 8px rgba(239,68,68,0.3);
+}
+.dtm-btn-danger:hover { opacity: 0.9; box-shadow: 0 4px 16px rgba(239,68,68,0.4); }

@@ -1,0 +1,263 @@
+Now I have a complete picture. Here's the full feature summary:                                     
+                       
+  ---                                                                                                 
+  DB Access — Complete Feature Summary                                                                
+                                                                                                        ---                                                                                                 
+  1. Multi-Database Connections                                                                       
+
+  - Supports PostgreSQL, MySQL, and ClickHouse
+  - Connect by filling a form (host, port, database, username, password, SSL toggle) or by pasting a  
+  connection URL (postgres://user:pass@host/db or mysql://...) — it auto-fills the form
+  - Test Connection button before saving
+  - Each connection gets a colour tag (8 colour choices) for visual identification
+  - SSH Tunnel support — connect to remote servers through an SSH jump host using key-based auth      
+  - Connections are saved and restored automatically on relaunch
+  - Rename a connection inline in the sidebar
+  - Multiple simultaneous connections — all active at once, each in their own tabs
+  - Connect to saved connections without re-entering credentials
+  - Auto-selects port based on DB type (5432 / 3306 / 8123)
+
+  ---
+  2. Sidebar — Connection & Table Browser
+
+  - Lists all active connections with expandable tree (click to load tables/views)
+  - Database switcher — change the active database within a connection from the sidebar
+  - Pinned tables — pin frequently-used tables to the top; persists across sessions
+  - Search/filter within a connection's tables
+  - History tab — shows recent queries per session with a search bar
+  - Right-click context menu on any table with:
+    - Open table (new tab)
+    - View table structure
+    - Clone table (generates CREATE TABLE ... LIKE ... SQL)
+    - Export table
+    - Truncate table (with FK warning)
+    - Delete table (with FK warning)
+    - Scaffold new table / materialized view
+    - Import CSV into table
+  - Create Database from connection context menu
+  - Export full database (SQL or CSV format)
+  - Run SQL file — open a .sql file from disk and execute it
+  - Open ER Diagram, Metrics Board, and User Management tabs from connection context menu
+  - Sidebar can be collapsed to a narrow icon strip (Ctrl+\)
+
+  ---
+  3. Multi-Tab Query Interface
+
+  - Unlimited tabs — each tab has its own connection, query, and results
+  - Tabs persist across sessions (restored on relaunch)
+  - Rename tab — double-click the title or right-click → Rename
+  - Duplicate tab — right-click → Duplicate
+  - Close tab / Close all / Close other tabs from right-click menu
+  - Ctrl+T new tab, Ctrl+W close, Ctrl+[ / Ctrl+] switch tabs
+  - Tab types: Query, ER Diagram, Metrics Board, User Management
+
+  ---
+  4. SQL Query Editor
+
+  - CodeMirror editor with SQL syntax highlighting and bracket matching
+  - Run selection — highlight part of the query and Ctrl+Enter runs only that part
+  - Resizable editor — drag the divider to give more or less space to the editor vs results
+  - Find & Replace — Ctrl+F / Ctrl+H with match count indicator
+  - Format SQL — Ctrl+Shift+F beautifies and indents the query
+  - Minify SQL — compresses the query to a single line
+  - Toggle line comment — Ctrl+/
+  - Transaction controls — BEGIN / COMMIT / ROLLBACK buttons
+  - EXPLAIN ANALYZE button — runs the query with EXPLAIN and shows the plan
+  - Dynamic query parameters — use {{param_name}} in SQL; a parameter input panel appears
+  automatically; values are substituted before execution
+  - Query Favorites — save any query with a name; reload it from the Favorites panel; search saved    
+  favorites
+  - Save query to file — Ctrl+S exports the editor content as a .sql file
+  - Import CSV — type a table name and import a CSV file directly from the editor toolbar
+  - Connection indicator in the toolbar shows which connection the tab is on
+
+  ---
+  5. Results Grid
+
+  - Fast interactive data grid — handles large result sets with pagination
+  - Sort any column — click the header to toggle asc/desc
+  - Column visibility — "Columns" button opens a panel to show/hide individual columns
+  - Column reordering — drag the ⠿ grip on any column header to reorder; order is saved per table and 
+  restored on next open
+  - Inline cell editing — double-click any cell to edit; Enter saves, Escape cancels, Tab moves to    
+  next cell; sends an UPDATE statement to the database
+  - Multi-row selection — checkboxes on rows; select all with header checkbox
+  - Right-click row context menu:
+    - Copy row as JSON, CSV, or SQL INSERT
+    - Edit row (opens form)
+    - Delete row (with FK cascade confirmation)
+    - Inspect JSON (for JSON/JSONB columns)
+  - Pagination — configurable rows per page (50 / 100 / 250 / 500); page controls at the bottom       
+  - Row count and query duration shown in the results header
+  - Export results — CSV, JSON, or SQL INSERT; exports current page or all pages
+  - Filter bar — filter results client-side by typing in the filter input
+  - JSON sidebar — click a JSON cell to open a formatted JSON viewer panel on the right
+  - Refresh — re-runs the last query without re-typing
+
+  ---
+  6. FK-Aware Delete with Cascade
+
+  - When deleting one or more rows, a confirmation modal opens before any data is removed
+  - The modal fetches foreign key dependencies from information_schema and shows:
+    - Which referencing tables are affected
+    - How many rows in each would be impacted
+    - A scrollable preview of the affected rows (up to 10 rows, 6 columns each)
+  - Two delete options:
+    - Delete this table only — deletes only the selected rows (may fail if FKs exist)
+    - Cascade Delete (N total rows) — wraps all deletes in a transaction; deletes child table rows    
+  first, then the parent rows
+  - Same modal appears when Truncating a table (shows total row counts per referencing table)
+  - All deletes run in a BEGIN / COMMIT transaction so either everything succeeds or nothing changes  
+
+  ---
+  7. Delete History (30-Day Recovery)
+
+  - Every delete or truncate operation is saved to a rolling 30-day history
+  - History is accessible from the trash icon in the status bar (shows a red badge with the count)    
+  - Each history entry shows:
+    - Operation type (DELETE / TRUNCATE) with colour badge
+    - Table name and connection name
+    - Row count deleted, cascade row count
+    - Timestamp of deletion
+    - Days until the entry expires (turns red when ≤ 3 days remain)
+  - Copy SQL — generates an INSERT statement to re-insert the deleted rows (cascade children inserted 
+  first to satisfy FK constraints)
+  - Restore to tab — opens a new query tab pre-filled with the re-insert SQL
+  - Delete individual entry or Clear all history
+  - Search across table name, connection name, and operation type
+  - Capped at 500 entries; expired entries filtered out on load
+
+  ---
+  8. Table Structure Panel
+
+  - Right-click any table → View Structure to open a panel showing:
+    - Columns tab — name, data type, nullable, default value, primary key
+    - Indexes tab — index name, type, columns covered, uniqueness
+    - Foreign Keys tab — column, referenced table, referenced column
+
+  ---
+  9. ER Diagram (Entity-Relationship)
+
+  - Opens as a dedicated tab per connection
+  - Auto-generates a diagram of all tables and their FK relationships using React Flow + Dagre        
+  auto-layout
+  - Each table node shows all columns with type badges; primary keys are highlighted
+  - Interactive canvas — pan, zoom, drag nodes to rearrange
+  - MiniMap for navigation in large schemas
+  - FK relationships shown as arrows with source/target column labels
+  - Export diagram as PNG or SVG
+  - Node colours are deterministically generated from table name (consistent across sessions)
+
+  ---
+  10. Metrics Board
+
+  - Opens as a dedicated tab per connection
+  - Auto-refreshes every 10 seconds
+  - Shows live database stats:
+    - Active connections, database size, cache hit ratio, slow queries
+    - Locks and blocking queries
+    - Table bloat, dead tuples, index usage
+    - Long-running queries with PID, duration, and query text
+  - Displayed as metric cards with icons and colour accents
+
+  ---
+  11. User Management
+
+  - Opens as a dedicated tab per connection (PostgreSQL)
+  - Roles tab — lists all database roles with attributes (superuser, createdb, createrole, login)     
+  - Databases tab — lists all databases in the server with size and owner
+  - Create User form — username, password, and permission flags (superuser / createdb / createrole)   
+  - Drop User with confirmation
+
+  ---
+  12. Create Table UI
+
+  - Scaffold a new table without writing SQL — from sidebar right-click → Scaffold New Table
+  - Add columns with name, type (from a type picker appropriate to the DB), primary key, NOT NULL, and
+   default value
+  - Add/remove columns dynamically
+  - Schema selector (public / default)
+  - Generates and executes the CREATE TABLE statement
+
+  ---
+  13. Open Anything (Ctrl+K)
+
+  - Spotlight-style modal — press Ctrl+K to search across all tables from all active connections      
+  - Fuzzy search by table name or connection name
+  - Keyboard navigation (arrow keys + Enter) to open the selected table instantly
+
+  ---
+  14. Safe Mode
+
+  - Toggle in the status bar — shows green SAFE MODE ON or red SAFE MODE OFF
+  - When ON, any query containing DROP, DELETE, TRUNCATE, or ALTER requires an explicit confirmation  
+  dialog before execution
+  - Protects against accidentally running destructive queries on production databases
+  - State saved to localStorage and restored on relaunch
+  - Also configurable from the Settings panel
+
+  ---
+  15. Settings Panel
+
+  - Opened via the gear icon in the status bar
+  - Theme — Dark / Light (also togglable from the status bar sun/moon icon)
+  - Font size — Small / Medium / Large (applies to the entire app)
+  - Table density — Compact / Normal / Comfortable (changes row padding in the results grid)
+  - Safe Mode — On / Off toggle
+  - Rows per page — 50 / 100 / 250 / 500
+  - All settings saved to localStorage and applied immediately
+  - Restart Tour button at the bottom to replay the onboarding walkthrough
+
+  ---
+  16. Query History (Sidebar)
+
+  - The History tab in the sidebar shows recent queries for the session
+  - Search recent queries by keyword
+  - Click any history entry to re-open it in a new tab
+
+  ---
+  17. Keyboard Shortcuts Reference
+
+  - Press Ctrl+? (or the ? button in the title bar) to open the full Keyboard Shortcuts Modal
+  - Lists all shortcuts organized by category: Query Execution, Transaction Controls, Editor, Query   
+  Tools, Tabs & Navigation, Results Grid, Connection & Setup, Safe Mode
+
+  ---
+  18. First-Time Walkthrough Tour
+
+  - Plays automatically on first launch
+  - 8-step guided tour:
+    a. Welcome screen
+    b. New Connection button
+    c. Sidebar / table browser
+    d. Query editor
+    e. Results grid
+    f. Safe Mode toggle
+    g. Settings
+    h. "You're all set!" finish screen
+  - Spotlight effect highlights the exact UI element being described
+  - Progress dots, Back / Next / Skip buttons
+  - Tour completion saved to localStorage — never shown again unless restarted
+  - Restart Tour available from Settings panel at any time
+
+  ---
+  19. Status Bar
+
+  - Always-visible bar at the bottom showing:
+    - Status message (Ready / query result / error) with colour-coded dot
+    - Active connection name and database
+    - Total connection count
+    - Safe Mode toggle
+    - Theme toggle (sun/moon)
+    - Delete History button with badge count
+    - Settings gear button
+
+  ---
+  20. Packaging & Distribution
+
+  - Built with Electron 33 — runs natively on Windows, macOS, and Linux
+  - Windows: NSIS installer (DBAccess-Setup-1.0.0.exe) — one-click install, per-user, optional        
+  desktop/Start Menu shortcuts; publisher name shows as Shailesh Gokhale in file properties
+  - macOS: DMG installer for x64 and Apple Silicon (arm64)
+  - Linux: AppImage (portable, no install needed)
+  - App ID: com.shaileshgokhale.dbaccess
