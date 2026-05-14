@@ -1,0 +1,116 @@
+{
+  "name": "dbaccess",
+  "version": "1.0.0",
+  "description": "DB Access — a professional desktop database client",
+  "author": {
+    "name": "Shailesh Gokhale",
+    "email": "gokhaleshail@gmail.com"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"cross-env BROWSER=none vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build",
+    "package:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish never",
+    "package:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never",
+    "package:linux": "vite build && electron-builder --linux --publish never",
+    "package": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish never",
+    "package:dir": "vite build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.8.1",
+    "@xyflow/react": "^12.10.2",
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.5.2",
+    "dagre": "^0.8.5",
+    "html-to-image": "^1.11.13",
+    "mysql2": "^3.22.3",
+    "pg": "^8.13.1",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@codemirror/lang-sql": "^6.8.0",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "@uiw/react-codemirror": "^4.23.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.2"
+  },
+  "build": {
+    "appId": "com.shaileshgokhale.dbaccess",
+    "productName": "DB Access",
+    "copyright": "Copyright © 2026 Shailesh Gokhale",
+    "icon": "build/icon.png",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "DBAccess-Setup-${version}.${ext}",
+      "legalTrademarks": "DB Access by Shailesh Gokhale",
+      "signtoolOptions": {
+        "publisherName": "Shailesh Gokhale | gokhaleshail@gmail.com"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DB Access"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "DBAccess-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "DB Access ${version}",
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "artifactName": "DBAccess-${version}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,159 @@
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; animation: fadeIn 0.2s ease;
+}
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+  width: 520px; max-height: 85vh; display: flex; flex-direction: column;
+  animation: scaleIn 0.2s ease;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px 0; flex-shrink: 0;
+}
+.modal-header h2 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.modal-close {
+  padding: 6px; border-radius: var(--radius-md); color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+.modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.modal-body {
+  padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto;
+}
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-group label {
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.form-group input, .form-group select {
+  padding: 8px 12px; border-radius: var(--radius-md);
+  background: var(--bg-primary); border: 1px solid var(--border-default);
+  color: var(--text-primary); outline: none; font-size: 13px;
+  transition: all var(--transition-fast);
+}
+.form-group input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(108, 123, 247, 0.15); }
+.form-row { display: flex; gap: 12px; }
+.form-grow { flex: 1; }
+.form-port { width: 90px; }
+
+/* Color picker */
+.name-with-color { display: flex; flex-direction: column; gap: 8px; }
+.name-with-color input { width: 100%; }
+.color-picker { display: flex; gap: 6px; }
+.color-dot {
+  width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; transition: all var(--transition-fast);
+}
+.color-dot:hover { transform: scale(1.15); }
+.color-dot.active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px currentColor;
+}
+
+/* DB Type Selector */
+.db-type-selector { display: flex; gap: 8px; }
+.db-type-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 10px; border-radius: var(--radius-md);
+  background: var(--bg-primary); border: 1px solid var(--border-default);
+  color: var(--text-secondary); font-weight: 500; font-size: 13px;
+  cursor: pointer; transition: all var(--transition-fast);
+}
+.db-type-btn:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
+.db-type-btn.active {
+  border-color: var(--accent-primary); color: var(--accent-primary);
+  background: var(--accent-primary-bg);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+/* Checkbox */
+.form-checkbox {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text-secondary);
+}
+.form-checkbox input[type="checkbox"] {
+  width: 16px; height: 16px; accent-color: var(--accent-primary); cursor: pointer;
+}
+
+/* Advanced / SSH */
+.advanced-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 0; font-size: 12px; font-weight: 600;
+  color: var(--text-tertiary); cursor: pointer; transition: color var(--transition-fast);
+}
+.advanced-toggle:hover { color: var(--text-secondary); }
+.advanced-toggle svg { transition: transform var(--transition-fast); }
+.advanced-toggle svg.expanded { transform: rotate(90deg); }
+.advanced-section {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 12px; background: var(--bg-primary);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  animation: slideDown 0.2s ease-out;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Test result */
+.test-result {
+  padding: 10px 14px; border-radius: var(--radius-md); font-size: 12px; font-weight: 500;
+  animation: scaleIn 0.15s ease;
+}
+.test-result.success {
+  background: var(--accent-green-bg); color: var(--accent-green);
+  border: 1px solid rgba(61, 214, 140, 0.2);
+}
+.test-result.error {
+  background: var(--accent-red-bg); color: var(--accent-red);
+  border: 1px solid rgba(247, 108, 108, 0.2);
+}
+
+/* Footer */
+.modal-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.modal-footer-right { display: flex; gap: 8px; }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--radius-md);
+  background: var(--bg-hover); border: 1px solid var(--border-default);
+  color: var(--text-secondary); font-weight: 500; font-size: 13px;
+  cursor: pointer; transition: all var(--transition-fast);
+}
+.btn-secondary:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-spinner-sm {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid var(--border-strong); border-top-color: var(--text-primary);
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+.btn-ghost {
+  padding: 8px 16px; border-radius: var(--radius-md);
+  color: var(--text-secondary); font-size: 13px;
+  transition: all var(--transition-fast);
+}
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-primary-sm {
+  padding: 8px 20px; border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+  color: white; font-weight: 600; font-size: 13px;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(108, 123, 247, 0.3);
+}
+.btn-primary-sm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(108, 123, 247, 0.4);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

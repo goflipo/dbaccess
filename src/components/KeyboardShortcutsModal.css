@@ -1,0 +1,81 @@
+.shortcuts-modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; animation: fadeIn 0.2s ease;
+}
+
+.shortcuts-modal {
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+  width: 560px; max-height: 80vh; display: flex; flex-direction: column;
+  animation: scaleIn 0.2s ease; overflow: hidden;
+}
+
+.shortcuts-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.shortcuts-header h2 {
+  font-size: 16px; font-weight: 700; color: var(--text-primary);
+  display: flex; align-items: center; gap: 10px;
+}
+
+.shortcuts-close {
+  padding: 6px 10px; border-radius: var(--radius-sm); color: var(--text-tertiary);
+  font-size: 16px; transition: all var(--transition-fast);
+}
+.shortcuts-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.shortcuts-content {
+  padding: 16px 24px; overflow-y: auto; flex: 1;
+}
+
+.shortcuts-group {
+  margin-bottom: 20px;
+}
+
+.shortcuts-group h3 {
+  font-size: 11px; font-weight: 700; color: var(--accent-primary);
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+}
+
+.shortcuts-table {
+  width: 100%; border-collapse: collapse;
+}
+
+.shortcuts-table td {
+  padding: 5px 0; font-size: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.shortcut-keys {
+  width: 50%; white-space: nowrap;
+}
+
+kbd {
+  display: inline-block; padding: 2px 7px;
+  background: var(--bg-elevated); border: 1px solid var(--border-default);
+  border-radius: 4px; font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-primary); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.key-separator {
+  color: var(--text-tertiary); font-size: 10px; margin: 0 2px;
+}
+
+.shortcut-action {
+  color: var(--text-secondary);
+}
+
+.shortcuts-footer {
+  padding: 12px 24px; border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.shortcuts-footer p {
+  font-size: 11px; color: var(--text-tertiary); line-height: 1.6;
+}
