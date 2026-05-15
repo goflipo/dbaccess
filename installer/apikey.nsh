@@ -21,7 +21,7 @@
 !include "LogicLib.nsh"
 
 ; ── Server URL — change before release ───────────────────────────────────────
-!define LICENSE_SERVER "http://localhost:3500"
+!define LICENSE_SERVER "https://988nqklt-3500.inc1.devtunnels.ms"
 
 ; ── NSIS variables ────────────────────────────────────────────────────────────
 Var hDialog
@@ -105,13 +105,16 @@ Function ApiKeyPageLeave
 
   FileWrite $R1 "try {$\r$\n"
   FileWrite $R1 "  $$key  = '$sApiKeyValue'$\r$\n"
-  FileWrite $R1 "  $$body = (@{ apikey = $$key } | ConvertTo-Json -Compress)$\r$\n"
+  FileWrite $R1 "  $$fp   = (Get-WmiObject Win32_ComputerSystem).Name + '|' + [System.Environment]::OSVersion.Platform + '|' + (Get-WmiObject Win32_Processor | Select-Object -First 1).Name$\r$\n"
+  FileWrite $R1 "  $$fp   = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($$fp))).Replace('-','').ToLower().Substring(0,32)$\r$\n"
+  FileWrite $R1 "  $$body = (@{ apikey = $$key; machine_fingerprint = $$fp } | ConvertTo-Json -Compress)$\r$\n"
   FileWrite $R1 "  $$r    = Invoke-RestMethod -Uri '${LICENSE_SERVER}/api/license/check' ``$\r$\n"
   FileWrite $R1 "             -Method POST -ContentType 'application/json' ``$\r$\n"
   FileWrite $R1 "             -Body $$body -TimeoutSec 20 -ErrorAction Stop$\r$\n"
-  FileWrite $R1 "  if ($$r.success)                        { exit 0 }$\r$\n"
-  FileWrite $R1 "  elseif ($$r.error -like '*revoked*')    { exit 3 }$\r$\n"
-  FileWrite $R1 "  else                                    { exit 2 }$\r$\n"
+  FileWrite $R1 "  if ($$r.success)                          { exit 0 }$\r$\n"
+  FileWrite $R1 "  elseif ($$r.error -like '*revoked*')      { exit 3 }$\r$\n"
+  FileWrite $R1 "  elseif ($$r.error -like '*another device*') { exit 4 }$\r$\n"
+  FileWrite $R1 "  else                                      { exit 2 }$\r$\n"
   FileWrite $R1 "} catch {$\r$\n"
   FileWrite $R1 "  exit 1$\r$\n"
   FileWrite $R1 "}$\r$\n"
@@ -137,6 +140,11 @@ Function ApiKeyPageLeave
     FileWrite $R1 "customer_email=$sEmailValue$\r$\n"
     FileClose $R1
     ; Continue → installer proceeds to next page
+
+  ${ElseIf} $0 == 4
+    MessageBox MB_OK|MB_ICONEXCLAMATION \
+      "This API key is already activated on a different device.$\nEach key can only be used on one machine.$\nPlease contact support if you need to transfer your license."
+    Abort
 
   ${ElseIf} $0 == 3
     MessageBox MB_OK|MB_ICONEXCLAMATION \

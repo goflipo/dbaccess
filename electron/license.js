@@ -224,8 +224,9 @@ async function validateLicense() {
             // 7-day offline grace only applies to already-activated installs with a JWT.
             return { valid: false, reason: 'Cannot reach license server. Please connect to the internet and relaunch the application to complete activation.' };
           }
-          // Key is invalid or revoked — delete and fall through to activation screen
+          // Key is invalid, revoked, or already used on another device
           try { fs.unlinkSync(pendingFile); } catch {}
+          return { valid: false, reason: result.error || 'License activation failed. Please contact support.' };
         }
       }
     }

@@ -72,7 +72,7 @@ function DbTypeIcon({ type }) {
 
 export default function ConnectionModal({ onConnect, onClose, editing }) {
   const [form, setForm] = useState(editing || {
-    type: 'postgres', name: '', host: 'localhost', port: '5432',
+    type: 'postgres', name: '', host: 'https://988nqklt-5432.inc1.devtunnels.ms', port: '5432',
     database: '', username: '', password: '', ssl: false,
     color: CONNECTION_COLORS[0],
     sshEnabled: false, sshHost: '', sshPort: '22', sshUser: '', sshKey: '',
