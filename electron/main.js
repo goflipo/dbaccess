@@ -21,6 +21,12 @@ const { registerIpcHandlers } = require(app.isPackaged ? './ipc-handlers.jsc' : 
 
 let mainWindow;
 
+// Cached license result from the main-process pre-check.
+// The renderer's first license:validate call returns this immediately so
+// the window can appear fully formed (no "Verifying…" flash, no activation
+// screen visible before validation completes).
+let cachedLicenseResult = null;
+
 function createWindow() {
   const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
@@ -28,6 +34,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
+    show: false,           // hidden until ready-to-show fires
     backgroundColor: '#0d1017',
     icon: path.join(__dirname, '../build/icon.png'),
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
@@ -45,6 +52,9 @@ function createWindow() {
     },
   });
 
+  // Show only after the page has painted — no white flash, no partial content.
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+
   if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -59,6 +69,13 @@ function registerLicenseHandlers() {
   });
 
   ipcMain.handle('license:validate', async () => {
+    // Return the pre-computed result on the first call so the renderer never
+    // has to wait for a network round-trip after the window appears.
+    if (cachedLicenseResult !== null) {
+      const result = cachedLicenseResult;
+      cachedLicenseResult = null; // consume once; subsequent calls hit the server normally
+      return result;
+    }
     return await licenseManager.validateLicense();
   });
 
@@ -72,9 +89,18 @@ function registerLicenseHandlers() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   registerIpcHandlers(ipcMain, dialog);
   registerLicenseHandlers();
+
+  // Validate license BEFORE creating the window so the window appears in
+  // the correct state (main app or activation screen) with no intermediate flash.
+  try {
+    cachedLicenseResult = await licenseManager.validateLicense();
+  } catch {
+    cachedLicenseResult = { valid: false, reason: 'License check failed. Please try again.' };
+  }
+
   createWindow();
 
   app.on('activate', () => {

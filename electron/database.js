@@ -186,14 +186,6 @@ class DatabaseManager {
       this.connections.set(id, { client: db, config, type: 'sqlite', activeDb: dbPath });
       return { success: true, id, activeDb: dbPath };
 
-    } else if (type === 'duckdb') {
-      const { Database } = require('duckdb-async');
-      const dbPath = config.database || ':memory:';
-      const db = new Database(dbPath);
-      const conn2 = await db.connect();
-      this.connections.set(id, { client: conn2, db, config, type: 'duckdb', activeDb: dbPath });
-      return { success: true, id, activeDb: dbPath };
-
     } else if (type === 'mssql') {
       const sql = require('mssql');
       const pool = await new sql.ConnectionPool({
@@ -352,7 +344,6 @@ class DatabaseManager {
         else if (conn.type === 'clickhouse') await conn.client.close();
         else if (MYSQL_WIRE.has(conn.type)) await conn.client.end();
         else if (conn.type === 'sqlite')     conn.client.close();
-        else if (conn.type === 'duckdb')     { try { conn.client.close(); } catch {} if (conn.db) try { conn.db.close(); } catch {} }
         else if (conn.type === 'mssql')      await conn.client.close();
         else if (conn.type === 'mongodb')    await conn.client.close();
         else if (conn.type === 'redis')      conn.client.disconnect();
@@ -454,12 +445,6 @@ class DatabaseManager {
         const columns = rs.columns.map(c => ({ name: c.name, dataType: c.type || 'text' }));
         return { columns, rows, rowCount: rs.rowsAffected ?? rows.length, duration: Date.now() - startTime, command };
       }
-
-    } else if (conn.type === 'duckdb') {
-      const command = query.trim().split(/\s+/)[0].toUpperCase();
-      const rows = await conn.client.all(query);
-      const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
-      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
 
     } else if (conn.type === 'mssql') {
       const command = query.trim().split(/\s+/)[0].toUpperCase();
@@ -650,9 +635,6 @@ class DatabaseManager {
       return { plan: rows.map(r => Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(' | ')).join('\n') };
     } else if (conn.type === 'bigquery') {
       return { plan: 'BigQuery query plan not available in interactive mode. Check Cloud Console for query insights.' };
-    } else if (conn.type === 'duckdb') {
-      const rows = await conn.client.all(`EXPLAIN ${query}`);
-      return { plan: (rows || []).map(r => Object.values(r).join('\n')).join('\n') };
     }
     return { plan: `EXPLAIN not supported for ${conn.type}` };
   }
@@ -672,9 +654,6 @@ class DatabaseManager {
       return (await rs.json()).map(r => r.name);
     } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
       return ['main'];
-    } else if (conn.type === 'duckdb') {
-      const rows = await conn.client.all('SHOW DATABASES');
-      return (rows || []).map(r => r.database_name || r.name || String(r));
     } else if (conn.type === 'mssql') {
       const result = await conn.client.request().query("SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name");
       return (result.recordset || []).map(r => r.name);
@@ -750,11 +729,6 @@ class DatabaseManager {
       }
       const rs = await conn.client.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY name");
       return rs.rows.map(r => ({ schema: db, name: r[0] || r.name, type: (r[1] || r.type) === 'view' ? 'VIEW' : 'BASE TABLE', fullName: r[0] || r.name }));
-
-    } else if (conn.type === 'duckdb') {
-      const schema = database || 'main';
-      const rows = await conn.client.all(`SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_name`);
-      return (rows || []).map(r => ({ schema, name: r.table_name, type: r.table_type === 'VIEW' ? 'VIEW' : 'BASE TABLE', fullName: `${schema}.${r.table_name}` }));
 
     } else if (conn.type === 'mssql') {
       const db = database || conn.activeDb || 'dbo';
@@ -925,7 +899,7 @@ class DatabaseManager {
       return { success: true, activeDb: newDatabase };
     }
 
-    // For types that don't support switching (sqlite, libsql, d1, dynamodb, vertica, duckdb)
+    // For types that don't support switching (sqlite, libsql, d1, dynamodb, vertica)
     conn.activeDb = newDatabase;
     return { success: true, activeDb: newDatabase };
   }
@@ -967,13 +941,6 @@ class DatabaseManager {
       }
       const rs = await this.executeQuery(connectionId, `PRAGMA table_info(${JSON.stringify(table)})`);
       return rs.rows.map(r => ({ column_name: r.name, data_type: r.type, is_nullable: r.notnull ? 'NO' : 'YES', column_default: r.dflt_value }));
-
-    } else if (conn.type === 'duckdb') {
-      const schema = parts.length > 1 ? parts[0] : 'main';
-      const rows = await conn.client.all(
-        `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = '${schema}' AND table_name = '${table}' ORDER BY ordinal_position`
-      );
-      return (rows || []).map(r => ({ column_name: r.column_name, data_type: r.data_type, is_nullable: r.is_nullable, column_default: r.column_default }));
 
     } else if (conn.type === 'mssql') {
       const schema = parts.length > 1 ? parts[0] : 'dbo';

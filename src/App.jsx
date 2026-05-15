@@ -1197,14 +1197,12 @@ export default function App() {
     return () => clearTimeout(timeout)
   }, [])
 
+  // License was pre-validated in the main process before the window was shown,
+  // so this 'checking' state resolves in a single IPC round-trip (no server call).
+  // Render nothing — the window is already painted in backgroundColor so there
+  // is no visible flash before the real UI appears.
   if (licenseStatus === 'checking') {
-    return (
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                    height:'100vh', background:'var(--bg-primary)',
-                    color:'var(--text-tertiary)', fontSize:13 }}>
-        Verifying license...
-      </div>
-    )
+    return null
   }
 
   if (licenseStatus === 'invalid') {

@@ -31,7 +31,6 @@
     "csv-parse": "^5.6.0",
     "csv-stringify": "^6.5.2",
     "dagre": "^0.8.5",
-    "duckdb-async": "^1.4.2",
     "html-to-image": "^1.11.13",
     "ioredis": "^5.10.1",
     "mongodb": "^6.21.0",
@@ -100,8 +99,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "DB Access",
-      "include": "installer/apikey.nsh"
+      "shortcutName": "DB Access"
     },
     "mac": {
       "target": [

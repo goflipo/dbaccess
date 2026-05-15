@@ -48,3 +48,38 @@ This is an Electron app — it runs on desktop (Windows, macOS, Linux). iOS is n
 ✻ Brewed for 14s    
 
 ──────────────────────────────────────────────────────────────────────────────────────────────────────❯ build the windows installer now                                                                     ──────────────────────────────────────────────────────────────────────────────────────────────────────  ⏵⏵ accept edits on (shift+tab to cycle)                                                                                                                                                                   
+
+
+
+
+
+
+
+
+
+
+
+
+now onword what should i do for activation key page see                                              
+
+● Two easy ways whenever you want to see the activation screen:
+  
+  Option 1 — From the app (while it's running)
+  Open DevTools (Ctrl+Shift+I) → Console, paste:
+  window.dbAccess.license.clear()
+  Then close and rerun npm run dev.
+
+  Option 2 — From PowerShell (before launching)
+  Remove-Item "$env:APPDATA\DB Access\license.dat" -ErrorAction SilentlyContinue
+  Then npm run dev.
+
+  That's it — either way clears the stored license and the activation screen appears on next launch.
+  After you activate with a valid key, the app saves it and goes straight to the main app on all future
+   launches.
+
+✻ Cogitated for 12s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ now build the installer
+───────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)

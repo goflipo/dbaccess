@@ -11,7 +11,6 @@ const DB_TYPES = [
   { id: 'mariadb',     label: 'MariaDB',       group: 'SQL' },
   { id: 'mssql',       label: 'SQL Server',    group: 'SQL' },
   { id: 'sqlite',      label: 'SQLite',        group: 'SQL' },
-  { id: 'duckdb',      label: 'DuckDB',        group: 'SQL' },
   { id: 'clickhouse',  label: 'ClickHouse',    group: 'Analytics' },
   { id: 'cockroachdb', label: 'CockroachDB',   group: 'SQL' },
   { id: 'greenplum',   label: 'Greenplum',     group: 'Analytics' },
@@ -32,11 +31,11 @@ const DEFAULT_PORTS = {
   clickhouse: '8123', cockroachdb: '26257', greenplum: '5432',
   redshift: '5439', snowflake: '443', mongodb: '27017',
   redis: '6379', cassandra: '9042', vertica: '5433',
-  sqlite: '', duckdb: '', libsql: '', bigquery: '', d1: '', dynamodb: '',
+  sqlite: '', libsql: '', bigquery: '', d1: '', dynamodb: '',
 }
 
 // Types that use file path instead of host
-const FILE_TYPES = new Set(['sqlite', 'duckdb'])
+const FILE_TYPES = new Set(['sqlite'])
 // Types that use a connection string
 const CONNSTR_TYPES = new Set(['libsql', 'mongodb'])
 // Types with special auth (no standard host/port/user/pass)
@@ -72,7 +71,7 @@ function DbTypeIcon({ type }) {
 
 export default function ConnectionModal({ onConnect, onClose, editing }) {
   const [form, setForm] = useState(editing || {
-    type: 'postgres', name: '', host: 'https://988nqklt-5432.inc1.devtunnels.ms', port: '5432',
+    type: 'postgres', name: '', host: 'https://988nqklt-5434.inc1.devtunnels.ms', port: '5434',
     database: '', username: '', password: '', ssl: false,
     color: CONNECTION_COLORS[0],
     sshEnabled: false, sshHost: '', sshPort: '22', sshUser: '', sshKey: '',
@@ -303,7 +302,7 @@ export default function ConnectionModal({ onConnect, onClose, editing }) {
                   <label>Database File Path</label>
                   <input type="text" value={form.database}
                     onChange={e => update('database', e.target.value)}
-                    placeholder={t === 'sqlite' ? '/path/to/database.db  (leave empty for :memory:)' : '/path/to/file.duckdb  (leave empty for :memory:)'}
+                    placeholder="/path/to/database.db  (leave empty for :memory:)"
                   />
                 </div>
               )}
