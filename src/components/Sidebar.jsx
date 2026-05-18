@@ -10,7 +10,7 @@ export default function Sidebar({
   onExportDatabase, onDeleteTable, onTruncateTable, onShowTableStructure,
   savedConnections, onConnectSaved, onDeleteSaved, onRenameConnection,
   queryHistory, refreshKey, onSelectConnection,
-  onNewUsersTab, onNewMetricsTab, onNewCompareTab,
+  onNewUsersTab, onNewMetricsTab, onNewCompareTab, onNewBroadcastTab,
   onDeleteMultipleTables,
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -350,9 +350,14 @@ export default function Sidebar({
         <span className="sidebar-label">{viewMode === 'items' ? 'CONNECTIONS' : 'RECENT QUERIES'}</span>
         <div className="sidebar-header-actions">
           {viewMode === 'items' && (
-            <button className="sidebar-btn" onClick={onNewConnection} title="New Connection" data-tour="new-connection">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
+            <>
+              <button className="sidebar-btn" onClick={onNewBroadcastTab} title="Multi-DB Broadcast — run one query on multiple databases">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              </button>
+              <button className="sidebar-btn" onClick={onNewConnection} title="New Connection" data-tour="new-connection">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </>
           )}
           <button className="sidebar-btn" onClick={onToggle} title="Collapse sidebar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
@@ -718,6 +723,10 @@ export default function Sidebar({
                     <button className="context-menu-item" onClick={() => { onNewCompareTab?.(); setContextMenu(null) }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
                       DB Compare & Sync
+                    </button>
+                    <button className="context-menu-item" onClick={() => { onNewBroadcastTab?.(); setContextMenu(null) }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                      Multi-DB Broadcast
                     </button>
                     <button className="context-menu-item" onClick={() => { onNewUsersTab?.(contextMenu.connId); setContextMenu(null) }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>

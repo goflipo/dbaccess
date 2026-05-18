@@ -7,6 +7,7 @@ import ERDiagram from './components/ERDiagram'
 import MetricsBoard from './components/MetricsBoard'
 import UserManagementPanel from './components/UserManagementPanel'
 import DBComparePanel from './components/DBComparePanel'
+import BroadcastPanel from './components/BroadcastPanel'
 import ConnectionModal from './components/ConnectionModal'
 import StatusBar from './components/StatusBar'
 import CreateTableModal from './components/CreateTableModal'
@@ -492,6 +493,17 @@ function MainApp() {
     setActiveTabId(tabId)
   }, [tabs])
 
+  const handleNewBroadcastTab = useCallback(() => {
+    const existing = tabs.find(t => t.type === 'broadcast')
+    if (existing) { setActiveTabId(existing.id); return }
+    const tabId = genId()
+    setTabs(prev => [...prev, {
+      id: tabId, connectionId: '', type: 'broadcast', title: 'Broadcast',
+      query: '', results: null, isRunning: false,
+    }])
+    setActiveTabId(tabId)
+  }, [tabs])
+
   const handleRenameConnection = useCallback(async (connId, newName) => {
     await window.dbAccess.renameConnection(connId, newName)
     setConnections(prev => prev.map(c => c.id === connId ? { ...c, name: newName } : c))
@@ -941,6 +953,7 @@ function MainApp() {
           onNewMetricsTab={handleNewMetricsTab}
           onNewUsersTab={handleNewUsersTab}
           onNewCompareTab={handleNewCompareTab}
+          onNewBroadcastTab={handleNewBroadcastTab}
           onRenameConnection={handleRenameConnection}
           onRunSqlFile={handleRunSqlFile}
           onCreateDatabase={handleCreateDatabase}
@@ -975,6 +988,8 @@ function MainApp() {
                 <UserManagementPanel connectionId={activeTab.connectionId} />
               ) : activeTab.type === 'compare' ? (
                 <DBComparePanel connections={connections} />
+              ) : activeTab.type === 'broadcast' ? (
+                <BroadcastPanel connections={connections} />
               ) : (
                 <>
                   <QueryEditor

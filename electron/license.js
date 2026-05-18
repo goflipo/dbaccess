@@ -9,6 +9,17 @@ const https = require('https');
 const LICENSE_SERVER_URL = 'http://localhost:3500';
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── API-key gate toggle ──────────────────────────────────────────────────────
+// Set  DBACCESS_LICENSE_ENABLED=false  (or 0 / no) in the environment to run
+// the app without requiring a license key — useful for internal/dev builds.
+// Any other value (or omitting the variable entirely) keeps the gate active.
+const LICENSE_ENABLED = (() => {
+  const v = process.env.DBACCESS_LICENSE_ENABLED;
+  if (v === undefined || v === null) return true;   // default: gate ON
+  return v !== 'false' && v !== '0' && v !== 'no';
+})();
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Lazy — computed inside functions so app.getPath is never called before app.ready
 const getLicenseFile = () => path.join(app.getPath('userData'), 'license.dat');
 const getDeviceFile  = () => path.join(app.getPath('userData'), 'device.dat');
@@ -108,6 +119,8 @@ function callServer(method, endpoint, body) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 async function activateLicense(apiKey) {
+  if (!LICENSE_ENABLED) return { success: true };
+
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
     return { success: false, error: 'Please enter a valid API key' };
   }
@@ -136,6 +149,8 @@ async function activateLicense(apiKey) {
 }
 
 async function validateLicense() {
+  if (!LICENSE_ENABLED) return { valid: true };
+
   const apiKey = loadStoredKey();
   if (!apiKey) return { valid: false, reason: 'No license found' };
 

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { registerIpcHandlers } = require('./ipc-handlers');
