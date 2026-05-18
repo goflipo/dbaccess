@@ -53,7 +53,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      ".env"
     ],
     "win": {
       "target": [
