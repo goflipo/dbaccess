@@ -16,7 +16,9 @@
       "PowerShell(ls \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\MSBuild\\\\Microsoft\\\\VC\\\\v180\\\\Platforms\\\\\" 2>$null | Select-Object Name)",
       "PowerShell(node -e \"console.log\\(require\\('./node_modules/duckdb/package.json'\\).version\\)\")",
       "PowerShell(npm show *)",
-      "PowerShell(node -e \"const p = require\\('./package.json'\\); console.log\\('duckdb:', p.dependencies?.duckdb || p.devDependencies?.duckdb\\)\")"
+      "PowerShell(node -e \"const p = require\\('./package.json'\\); console.log\\('duckdb:', p.dependencies?.duckdb || p.devDependencies?.duckdb\\)\")",
+      "Bash(git stash *)",
+      "Bash(git cherry-pick *)"
     ]
   }
 }

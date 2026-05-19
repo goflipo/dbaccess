@@ -1,6 +1,24 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
+// Load .env from app root — no external dependency, silently skipped if file is missing
+try {
+  const _fs = require('fs');
+  const _path = require('path');
+  const _envPath = _path.join(__dirname, '..', '.env');
+  if (_fs.existsSync(_envPath)) {
+    _fs.readFileSync(_envPath, 'utf-8').split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) return;
+      const key = trimmed.slice(0, eq).trim();
+      const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+      if (key && !(key in process.env)) process.env[key] = val;
+    });
+  }
+} catch {}
+
 // Force userData to the same path the NSIS installer uses ($APPDATA\DB Access),
 // regardless of what app.getName() returns in packaged vs dev mode.
 // Must be called before app.ready and before any app.getPath('userData') calls.

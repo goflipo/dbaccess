@@ -5,14 +5,10 @@ const crypto = require('crypto');
 const http  = require('http');
 const https = require('https');
 
-// Server URL assembled at runtime — not a single grep-able string.
-// For production: change proto to 'https', host to your domain, port to ''.
-const LICENSE_SERVER_URL = (() => {
-  const proto = Buffer.from('687474703a2f2f', 'hex').toString(); // http://
-  const host  = 'localhost';
-  const port  = ':3500';
-  return proto + host + port;
-})();
+const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'http://localhost:3500';
+
+// Set LICENSE_BYPASS=true in .env to skip all license checks (dev/testing only)
+const LICENSE_BYPASS = process.env.LICENSE_BYPASS === 'true';
 
 // 7-day offline grace in milliseconds
 const OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -193,6 +189,8 @@ async function activateLicense(apiKey, customerName, customerEmail) {
 }
 
 async function validateLicense() {
+  if (LICENSE_BYPASS) return { valid: true };
+
   // ── 1. Pending key written by NSIS installer ──────────────────────────────
   // Format: key=value lines (apikey, customer_name, customer_email)
   try {

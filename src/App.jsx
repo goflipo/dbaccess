@@ -7,6 +7,7 @@ import ERDiagram from './components/ERDiagram'
 import MetricsBoard from './components/MetricsBoard'
 import UserManagementPanel from './components/UserManagementPanel'
 import DBComparePanel from './components/DBComparePanel'
+import BroadcastPanel from './components/BroadcastPanel'
 import ConnectionModal from './components/ConnectionModal'
 import StatusBar from './components/StatusBar'
 import CreateTableModal from './components/CreateTableModal'
@@ -481,6 +482,17 @@ function MainApp() {
     setActiveTabId(tabId)
   }, [activeConnectionId, connections])
 
+  const handleNewBroadcastTab = useCallback(() => {
+    const existing = tabs.find(t => t.type === 'broadcast')
+    if (existing) { setActiveTabId(existing.id); return }
+    const tabId = genId()
+    setTabs(prev => [...prev, {
+      id: tabId, connectionId: '', type: 'broadcast', title: 'Broadcast',
+      query: '', results: null, isRunning: false,
+    }])
+    setActiveTabId(tabId)
+  }, [tabs])
+
   const handleNewCompareTab = useCallback(() => {
     const existing = tabs.find(t => t.type === 'compare')
     if (existing) { setActiveTabId(existing.id); return }
@@ -943,6 +955,7 @@ function MainApp() {
           onNewMetricsTab={handleNewMetricsTab}
           onNewUsersTab={handleNewUsersTab}
           onNewCompareTab={handleNewCompareTab}
+          onNewBroadcastTab={handleNewBroadcastTab}
           onRenameConnection={handleRenameConnection}
           onRunSqlFile={handleRunSqlFile}
           onCreateDatabase={handleCreateDatabase}
@@ -975,6 +988,8 @@ function MainApp() {
                 <MetricsBoard connectionId={activeTab.connectionId} />
               ) : activeTab.type === 'users' ? (
                 <UserManagementPanel connectionId={activeTab.connectionId} />
+              ) : activeTab.type === 'broadcast' ? (
+                <BroadcastPanel connections={connections} />
               ) : activeTab.type === 'compare' ? (
                 <DBComparePanel connections={connections} />
               ) : (
