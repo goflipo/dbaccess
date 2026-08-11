@@ -79,14 +79,19 @@ export default function BroadcastPanel({ connections }) {
   const selectAll = () => setSelectedIds(new Set(activeConns.map(c => c.id)))
   const clearAll = () => setSelectedIds(new Set())
 
-  const handleRun = useCallback(() => {
+  const handleRun = useCallback(async () => {
     if (!query.trim() || selectedIds.size === 0 || isRunning) return
 
     if (DESTRUCTIVE_PATTERN.test(query)) {
       const keyword = query.match(DESTRUCTIVE_PATTERN)?.[0]?.toUpperCase()
-      const ok = window.confirm(
-        `⚠️ Broadcast Warning\n\nThis query contains "${keyword}" and will run on ${selectedIds.size} database(s).\n\nThis action may be irreversible on all selected databases. Continue?`
-      )
+      const ok = await window.dbAccess.confirm({
+        type: 'warning',
+        title: 'Broadcast Warning',
+        message: `This query contains "${keyword}" and will run on ${selectedIds.size} database(s).`,
+        detail: 'This action may be irreversible on all selected databases. Continue?',
+        confirmLabel: 'Run',
+        cancelLabel: 'Cancel',
+      })
       if (!ok) return
     }
 

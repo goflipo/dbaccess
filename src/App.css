@@ -49,7 +49,7 @@
 }
 .btn-primary {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 24px; border-radius: var(--radius-lg);
+  padding: 7px 20px; border-radius: var(--radius-md);
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
   color: white; font-weight: 600; font-size: 14px;
   transition: all var(--transition-fast);
@@ -57,6 +57,13 @@
   -webkit-app-region: no-drag;
 }
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(108, 123, 247, 0.4);
+  filter: brightness(1.08);
+}
+.btn-primary:active {
+  filter: brightness(0.92);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
 }

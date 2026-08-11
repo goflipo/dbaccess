@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('dbAccess', {
+  // --- Window chrome ---
+  setTitleBarOverlay: (options) => ipcRenderer.invoke('window:set-titlebar-overlay', options),
+  confirm: (options) => ipcRenderer.invoke('dialog:confirm', options),
+
   // --- Connection ---
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   getConnections: () => ipcRenderer.invoke('db:get-connections'),

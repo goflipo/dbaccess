@@ -1,28 +1,20 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
-// Load .env from app root — no external dependency, silently skipped if file is missing
-try {
-  const _fs = require('fs');
-  const _path = require('path');
-  const _envPath = _path.join(__dirname, '..', '.env');
-  if (_fs.existsSync(_envPath)) {
-    _fs.readFileSync(_envPath, 'utf-8').split(/\r?\n/).forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) return;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
-      if (key && !(key in process.env)) process.env[key] = val;
-    });
-  }
-} catch {}
+// Only one running instance at a time — a second launch focuses the existing
+// window instead of spawning a new process, matching standard Windows app behavior.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 // Force userData to the same path the NSIS installer uses ($APPDATA\DB Access),
 // regardless of what app.getName() returns in packaged vs dev mode.
 // Must be called before app.ready and before any app.getPath('userData') calls.
 app.setPath('userData', path.join(app.getPath('appData'), 'DB Access'));
+
+// Correct Windows taskbar grouping/pinning/notification identity.
+app.setAppUserModelId('com.shaileshgokhale.dbaccess');
 
 // Fix: suppress GPU disk-cache Access Denied errors on Windows.
 // Must be called BEFORE app.whenReady() and BEFORE requiring license.js
@@ -73,6 +65,15 @@ function createWindow() {
   // Show only after the page has painted — no white flash, no partial content.
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
+  // Disable pinch/trackpad zoom and the Ctrl+=/-/0 zoom accelerators — a
+  // native desktop app's UI doesn't rescale like a webpage.
+  mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.control && ['+', '-', '=', '0'].includes(input.key)) {
+      event.preventDefault();
+    }
+  });
+
   if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -107,9 +108,26 @@ function registerLicenseHandlers() {
   });
 }
 
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+// ── Window-chrome IPC handlers ──────────────────────────────────────────────────
+function registerWindowHandlers() {
+  ipcMain.handle('window:set-titlebar-overlay', (_event, options = {}) => {
+    if (process.platform === 'win32' && mainWindow && typeof mainWindow.setTitleBarOverlay === 'function') {
+      mainWindow.setTitleBarOverlay(options);
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   registerIpcHandlers(ipcMain, dialog);
   registerLicenseHandlers();
+  registerWindowHandlers();
 
   // Validate license BEFORE creating the window so the window appears in
   // the correct state (main app or activation screen) with no intermediate flash.

@@ -214,7 +214,7 @@ const extractParams = (query) => {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function QueryEditor({
+function QueryEditor({
   value, onChange, onRun, onExport, onImport, isRunning,
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
@@ -391,8 +391,9 @@ export default function QueryEditor({
     onChange(newValue.join('\n'))
   }
 
-  const clearEditor = () => {
-    if (window.confirm('Clear all SQL code?')) onChange('')
+  const clearEditor = async () => {
+    const ok = await window.dbAccess.confirm({ title: 'Clear Editor', message: 'Clear all SQL code?' })
+    if (ok) onChange('')
   }
 
   const buildQuery = () => new SearchQuery({
@@ -771,3 +772,5 @@ export default function QueryEditor({
     </div>
   )
 }
+
+export default React.memo(QueryEditor)

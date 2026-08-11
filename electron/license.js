@@ -5,10 +5,10 @@ const crypto = require('crypto');
 const http  = require('http');
 const https = require('https');
 
-const LICENSE_SERVER_URL = process.env.LICENSE_SERVER_URL || 'http://localhost:3500';
+const LICENSE_SERVER_URL = 'http://localhost:3500';
 
-// Set LICENSE_BYPASS=true in .env to skip all license checks (dev/testing only)
-const LICENSE_BYPASS = process.env.LICENSE_BYPASS === 'true';
+// Set to true to skip the license check entirely (dev/testing only — set false before release)
+const isAccess = true;
 
 // 7-day offline grace in milliseconds
 const OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -189,7 +189,7 @@ async function activateLicense(apiKey, customerName, customerEmail) {
 }
 
 async function validateLicense() {
-  if (LICENSE_BYPASS) return { valid: true };
+  if (isAccess) return { valid: true };
 
   // ── 1. Pending key written by NSIS installer ──────────────────────────────
   // Format: key=value lines (apikey, customer_name, customer_email)

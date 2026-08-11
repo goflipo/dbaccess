@@ -99,7 +99,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "DB Access"
+      "shortcutName": "DB Access",
+      "include": "installer/cleanup.nsh"
     },
     "mac": {
       "target": [

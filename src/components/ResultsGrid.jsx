@@ -72,7 +72,7 @@ const applyOperator = (val, op, filterVal) => {
   }
 }
 
-export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
+function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
   const tableRef = useRef(null)
   const cellEditRef = useRef(null)
   const [filterText, setFilterText] = useState('')
@@ -1387,3 +1387,5 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
     </div>
   )
 }
+
+export default React.memo(ResultsGrid)

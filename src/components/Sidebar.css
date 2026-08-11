@@ -328,6 +328,7 @@
   display: flex; align-items: center; gap: 8px;
 }
 .context-menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.context-menu-item:active { filter: brightness(0.92); }
 .context-menu-item svg { flex-shrink: 0; opacity: 0.6; }
 .context-menu-divider {
   height: 1px; background: var(--border-default); margin: 3px 4px;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useTransition } from 'react'
 import './Sidebar.css'
 
-export default function Sidebar({
+function Sidebar({
   connections, activeConnectionId,
   onNewConnection, onToggle, collapsed,
   onTableClick, onDisconnect, onDeleteConnection,
@@ -869,3 +869,5 @@ export default function Sidebar({
     </div>
   )
 }
+
+export default React.memo(Sidebar)

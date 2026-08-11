@@ -354,77 +354,84 @@
 }
 .results-context-menu {
   position: fixed;
-  background: #252526;
-  border: 1px solid #454545;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  padding: 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  padding: 4px;
   min-width: 240px;
   z-index: 9999;
   font-family: var(--font-sans);
-  color: #cccccc;
-  animation: fadeIn 0.1s ease;
+  color: var(--text-secondary);
+  animation: scaleIn 0.15s ease-out;
 }
 .results-context-menu button {
   width: 100%;
   text-align: left;
   background: transparent;
   border: none;
-  padding: 6px 24px;
-  font-size: 13px;
-  color: #cccccc;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  transition: all var(--transition-fast);
 }
 .results-context-menu button:hover {
-  background: #094771;
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.results-context-menu button:active {
+  filter: brightness(0.92);
 }
 .results-context-menu button kbd {
   font-size: 11px;
-  color: #888888;
+  color: var(--text-tertiary);
   font-family: var(--font-sans);
 }
 .results-context-menu button:hover kbd {
-  color: #cccccc;
+  color: var(--text-secondary);
 }
 .ctx-divider {
   height: 1px;
-  background: #454545;
-  margin: 4px 0;
+  background: var(--border-default);
+  margin: 3px 4px;
 }
 .ctx-submenu-trigger {
   position: relative;
   width: 100%;
   text-align: left;
-  padding: 6px 24px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  transition: all var(--transition-fast);
 }
 .ctx-submenu-trigger:hover {
-  background: #094771;
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 .ctx-submenu {
   display: none;
   position: absolute;
   left: 100%;
   top: -4px;
-  background: #252526;
-  border: 1px solid #454545;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  padding: 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  padding: 4px;
   min-width: 200px;
 }
 .ctx-submenu-trigger.ctx-submenu-open {
-  background: #094771;
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 .ctx-submenu-trigger.ctx-submenu-open .ctx-submenu {
   display: block;

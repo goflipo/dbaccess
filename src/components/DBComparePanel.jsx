@@ -73,7 +73,14 @@ export default function DBComparePanel({ connections }) {
     if (!script) return
     const targetConnId = direction === 'src_to_tgt' ? tgtId : srcId
     const targetConn = connected.find(c => c.id === targetConnId)
-    if (!window.confirm(`Apply sync script to "${targetConn?.name || targetConnId}"?\n\nThis will modify the database. Make sure you have a backup.`)) return
+    const ok = await window.dbAccess.confirm({
+      title: 'Apply Sync Script',
+      message: `Apply sync script to "${targetConn?.name || targetConnId}"?`,
+      detail: 'This will modify the database. Make sure you have a backup.',
+      confirmLabel: 'Apply',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return
     setApplying(true)
     setApplyResult(null)
     try {

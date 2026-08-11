@@ -52,7 +52,15 @@ export default function UserManagementPanel({ connectionId }) {
   }
 
   const handleDropUser = async (username) => {
-    if (!window.confirm(`Drop user "${username}"? This cannot be undone.`)) return
+    const ok = await window.dbAccess.confirm({
+      type: 'warning',
+      title: 'Drop User',
+      message: `Drop user "${username}"?`,
+      detail: 'This cannot be undone.',
+      confirmLabel: 'Drop',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return
     try {
       const result = await window.dbAccess.dropUser(connectionId, username)
       if (result.success) { showStatus(`User "${username}" dropped`); fetchData() }

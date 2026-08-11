@@ -106,6 +106,21 @@ function extractSqlStatements(text, state, dollarTag, commentDepth, inCopyData) 
 const activeSqlJobs = new Map()
 
 function registerIpcHandlers(ipcMain, dialog) {
+  ipcMain.handle('dialog:confirm', async (event, options = {}) => {
+    const parentWindow = BrowserWindow.getFocusedWindow();
+    const { response } = await dialog.showMessageBox(parentWindow, {
+      type: options.type || 'question',
+      buttons: [options.confirmLabel || 'Yes', options.cancelLabel || 'No'],
+      defaultId: 0,
+      cancelId: 1,
+      title: options.title || 'Confirm',
+      message: options.message,
+      detail: options.detail,
+      noLink: true,
+    });
+    return response === 0;
+  });
+
   ipcMain.handle('db:connect', async (event, config) => {
     try { 
       const result = await dbManager.connect(config); 

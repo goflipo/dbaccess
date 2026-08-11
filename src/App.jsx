@@ -132,7 +132,25 @@ function MainApp() {
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('dbaccess:theme', theme)
+    window.dbAccess?.setTitleBarOverlay?.(
+      theme === 'dark'
+        ? { color: '#0d1017', symbolColor: '#8891a8', height: 38 }
+        : { color: '#f5f7fa', symbolColor: '#4a5370', height: 38 }
+    )
   }, [theme])
+
+  // Suppress Chromium's default spellcheck/inspect-element context menu
+  // everywhere except text-editing zones — those areas render their own
+  // custom menus (Sidebar/TabBar/ResultsGrid), which already call
+  // preventDefault() themselves and are unaffected by this fallback.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const editable = e.target.closest?.('input, textarea, [contenteditable="true"], .cm-editor')
+      if (!editable) e.preventDefault()
+    }
+    window.addEventListener('contextmenu', handler)
+    return () => window.removeEventListener('contextmenu', handler)
+  }, [])
 
   React.useEffect(() => {
     localStorage.setItem('dbaccess:settings', JSON.stringify(settings))
@@ -220,6 +238,15 @@ function MainApp() {
   React.useEffect(() => {
     localStorage.setItem('dbaccess:sidebarCollapsed', sidebarCollapsed)
   }, [sidebarCollapsed])
+
+  // Stable callback identities for props passed to memoized Sidebar/QueryEditor/
+  // ResultsGrid — inline arrow functions in JSX would defeat React.memo every render.
+  const handleToggleSidebar = useCallback(() => setSidebarCollapsed(c => !c), [])
+  const handleOpenNewConnectionModal = useCallback(() => {
+    setEditingConnection(null)
+    setShowConnectionModal(true)
+  }, [])
+  const handleOpenFavorites = useCallback(() => setShowFavoritesModal(true), [])
 
   // --- Connection handlers ---
   const handleConnect = useCallback(async (config) => {
@@ -330,13 +357,18 @@ function MainApp() {
   }, [connections])
 
   // --- Safe Mode enforcement ---
-  const checkSafeMode = useCallback((query) => {
+  const checkSafeMode = useCallback(async (query) => {
     if (!safeMode) return true
     if (DESTRUCTIVE_PATTERN.test(query)) {
       const keyword = query.match(DESTRUCTIVE_PATTERN)?.[0]?.toUpperCase()
-      const confirmed = window.confirm(
-        `⚠️ Safe Mode Warning\n\nThis query contains a potentially destructive operation: ${keyword}\n\nAre you sure you want to execute this query?\n\n"${query.substring(0, 200)}${query.length > 200 ? '…' : ''}"`
-      )
+      const confirmed = await window.dbAccess.confirm({
+        type: 'warning',
+        title: 'Safe Mode Warning',
+        message: `This query contains a potentially destructive operation: ${keyword}`,
+        detail: `Are you sure you want to execute this query?\n\n"${query.substring(0, 200)}${query.length > 200 ? '…' : ''}"`,
+        confirmLabel: 'Run Query',
+        cancelLabel: 'Cancel',
+      })
       return confirmed
     }
     return true
@@ -345,7 +377,7 @@ function MainApp() {
   // --- Run query ---
   const handleRunQuery = useCallback(async (query) => {
     if (!activeTab || !activeTab.connectionId) return { success: false, error: 'No active tab/connection' }
-    if (!checkSafeMode(query)) {
+    if (!(await checkSafeMode(query))) {
       showStatus('Query blocked by Safe Mode', 'error')
       return { success: false, error: 'Blocked by Safe Mode' }
     }
@@ -528,6 +560,10 @@ function MainApp() {
       showStatus(`SQL file error: ${result.error}`, 'error')
     }
   }, [showStatus])
+
+  const handleRunSqlFileForActiveTab = useCallback(() => {
+    handleRunSqlFile(activeTab?.connectionId)
+  }, [handleRunSqlFile, activeTab?.connectionId])
 
   // Register progress listener once
   React.useEffect(() => {
@@ -763,6 +799,10 @@ function MainApp() {
     else if (result.error !== 'Import cancelled') showStatus(`Import failed: ${result.error}`, 'error')
   }, [showStatus])
 
+  const handleImportForActiveTab = useCallback(() => {
+    handleImportCSVFromSidebar(activeTab?.connectionId)
+  }, [handleImportCSVFromSidebar, activeTab?.connectionId])
+
   const handleCloseTab = useCallback((tabId) => {
     setTabs(prev => {
       const remaining = prev.filter(t => t.id !== tabId)
@@ -942,9 +982,9 @@ function MainApp() {
           collapsed={sidebarCollapsed}
           refreshKey={sidebarRefreshKey}
           queryHistory={queryHistory}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggle={handleToggleSidebar}
           onSelectConnection={setActiveConnectionId}
-          onNewConnection={() => { setEditingConnection(null); setShowConnectionModal(true) }}
+          onNewConnection={handleOpenNewConnectionModal}
           onConnectSaved={handleConnectSaved}
           onDeleteSaved={handleDeleteSaved}
           onDisconnect={handleDisconnect}
@@ -1001,23 +1041,23 @@ function MainApp() {
                     onExport={handleExport}
                     onImport={handleImport}
                     onExplain={handleExplainQuery}
-                    onOpenFavorites={() => setShowFavoritesModal(true)}
+                    onOpenFavorites={handleOpenFavorites}
                     onSaveFavorite={handleSaveFavorite}
                     isRunning={activeTab.isRunning}
                     activeConnectionId={activeTab.connectionId}
                     connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
                     queryError={activeTab.queryError}
-                    onRunSqlFile={() => handleRunSqlFile(activeTab.connectionId)}
+                    onRunSqlFile={handleRunSqlFileForActiveTab}
                     theme={theme}
                   />
                   <ResultsGrid
                     results={activeTab.results}
                     isRunning={activeTab.isRunning}
                     onExport={handleExport}
-                    onRunQuery={(sql) => handleRunQuery(sql)}
+                    onRunQuery={handleRunQuery}
                     onRefresh={handleRefreshQuery}
                     onSetQuery={handleSetQuery}
-                    onImport={() => handleImportCSVFromSidebar(activeTab.connectionId)}
+                    onImport={handleImportForActiveTab}
                     sourceTable={activeTab.tableFullName || null}
                     pageSize={settings.pageSize}
                     density={settings.density}
