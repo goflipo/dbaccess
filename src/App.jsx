@@ -1104,10 +1104,6 @@ function MainApp() {
                 <img src="/logo.png" alt="DB Access Logo" style={{ maxWidth: '200px', marginBottom: '20px', opacity: 0.8 }} onError={(e) => { e.target.style.display='none' }} />
                 <h2>Welcome to DB Access</h2>
                 <p>Connect to a database to start querying</p>
-                <button className="btn-primary" onClick={() => { setEditingConnection(null); setShowConnectionModal(true) }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-                  New Connection
-                </button>
               </div>
             </div>
           )}
