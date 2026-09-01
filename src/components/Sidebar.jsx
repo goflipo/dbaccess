@@ -619,7 +619,7 @@ function Sidebar({
                                 >
                                   <svg className={isExpanded ? 'expanded' : ''} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
                                 </button>
-                                <div className="sidebar-table-main" onClick={(e) => { toggleTableSelect(e, conn.id, table.fullName, orderedTables); onTableClick(table.fullName, conn.id, activeDbs[conn.id]) }}>
+                                <div className="sidebar-table-main" onClick={() => onTableClick(table.fullName, conn.id, activeDbs[conn.id])}>
                                   {isView ? (
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-teal)" strokeWidth="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                   ) : (
