@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from 'react'
 import DeleteConfirmModal from './DeleteConfirmModal'
 import TableStructurePanel from './TableStructurePanel'
 import './ResultsGrid.css'
@@ -110,11 +110,24 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
   const menuRef = useRef(null)
   const [activeSubmenu, setActiveSubmenu] = useState(null)
   const submenuTimerRef = useRef(null)
+  const submenuRef = useRef(null)
+  const [submenuStyle, setSubmenuStyle] = useState({})
 
   const showToast = (msg, type = 'info') => {
     setToastMsg({ msg, type })
     setTimeout(() => setToastMsg(null), 2200)
   }
+
+  // Flip the open submenu up/left when it would otherwise overflow the window
+  useLayoutEffect(() => {
+    if (!activeSubmenu || !submenuRef.current) { setSubmenuStyle({}); return }
+    const rect = submenuRef.current.getBoundingClientRect()
+    const MARGIN = 8
+    const style = {}
+    if (rect.bottom > window.innerHeight - MARGIN) { style.top = 'auto'; style.bottom = -4 }
+    if (rect.right > window.innerWidth - MARGIN) { style.left = 'auto'; style.right = '100%' }
+    setSubmenuStyle(style)
+  }, [activeSubmenu])
 
   // Reposition context menu after it renders so it never goes off-screen
   useEffect(() => {
@@ -1261,7 +1274,7 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             <span>Set Value</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'setvalue' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => { setPendingChanges(prev => ({ ...prev, [`${contextMenu.ri}:${contextMenu.ci}`]: '' })); setContextMenu(null); setActiveSubmenu(null) }}>Empty String</button>
                 <button onClick={() => { setPendingChanges(prev => ({ ...prev, [`${contextMenu.ri}:${contextMenu.ci}`]: null })); setContextMenu(null); setActiveSubmenu(null) }}>NULL</button>
               </div>
@@ -1295,7 +1308,7 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             <span>Copy As</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'copyas' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => handleCopyAs('json')}>JSON</button>
                 <div className="ctx-divider" />
                 <button onClick={() => handleCopyAs('markdown')}>Markdown Table</button>
@@ -1319,7 +1332,7 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             <span>Quick Filter</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'filter' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => handleQuickFilter('equals')}>= Equals this value</button>
                 <button onClick={() => handleQuickFilter('not_equals')}>≠ Not equals this value</button>
                 <div className="ctx-divider" />
@@ -1344,7 +1357,7 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             <span>Import</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'import' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => {
                   if (onImport) { onImport(); setContextMenu(null); setActiveSubmenu(null) }
                   else { showToast('Import handler not connected.', 'error'); setContextMenu(null); setActiveSubmenu(null) }

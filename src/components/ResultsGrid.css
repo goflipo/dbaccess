@@ -452,6 +452,8 @@
   border-radius: var(--radius-md);
   padding: 4px;
   min-width: 200px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 .ctx-submenu-trigger.ctx-submenu-open {
   background: var(--bg-hover);
