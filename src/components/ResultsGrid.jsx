@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import DeleteConfirmModal from './DeleteConfirmModal'
+import TableStructurePanel from './TableStructurePanel'
 import './ResultsGrid.css'
 
 const operators = [
@@ -92,6 +93,10 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
   const [copiedCell, setCopiedCell] = useState(null)
   const [colWidths, setColWidths] = useState({})
   const [hiddenColumns, setHiddenColumns] = useState(new Set())
+  const [viewMode, setViewMode] = useState('data') // 'data' | 'structure' | 'index'
+
+  // Reset to the Data view whenever the underlying table/connection changes
+  useEffect(() => { setViewMode('data') }, [sourceTable, connectionId])
   const [showColVisibility, setShowColVisibility] = useState(false)
   const [toastMsg, setToastMsg] = useState(null)
   const [columnOrder, setColumnOrder] = useState(null)
@@ -958,6 +963,14 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
           </div>
         )}
 
+        {viewMode !== 'data' ? (
+          <TableStructurePanel
+            key={viewMode}
+            connectionId={connectionId}
+            tableName={sourceTable}
+            initialTab={viewMode === 'index' ? 'indexes' : 'columns'}
+          />
+        ) : (
         <div className="results-table-wrapper" ref={tableRef}>
           <table className={`results-table density-${density}`}>
             <thead>
@@ -1114,19 +1127,32 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             </tbody>
           </table>
         </div>
-
-        {totalPages > 1 && (
-          <div className="results-pagination">
-            <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
-            <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
-            <span className="pagination-info">
-              Page {currentPage + 1} of {totalPages}
-              <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
-            </span>
-            <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
-            <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
-          </div>
         )}
+
+        <div className="results-footer">
+          <div className="results-view-tabs">
+            <button className={`results-view-tab ${viewMode === 'data' ? 'active' : ''}`} onClick={() => setViewMode('data')}>Data</button>
+            <button className={`results-view-tab ${viewMode === 'structure' ? 'active' : ''}`} disabled={!sourceTable} title={!sourceTable ? 'Open a table to view its structure' : ''} onClick={() => setViewMode('structure')}>Structure</button>
+            <button className={`results-view-tab ${viewMode === 'index' ? 'active' : ''}`} disabled={!sourceTable} title={!sourceTable ? 'Open a table to view its indexes' : ''} onClick={() => setViewMode('index')}>Index</button>
+          </div>
+          {viewMode === 'data' && (
+            <div className="results-footer-right">
+              <span className="results-footer-count">{filteredRows.length.toLocaleString()} row{filteredRows.length !== 1 ? 's' : ''}</span>
+              {totalPages > 1 && (
+                <div className="results-pagination">
+                  <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
+                  <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
+                  <span className="pagination-info">
+                    Page {currentPage + 1} of {totalPages}
+                    <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
+                  </span>
+                  <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
+                  <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {showJsonSidebar && (

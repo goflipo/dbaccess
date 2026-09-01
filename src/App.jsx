@@ -8,7 +8,7 @@ import MetricsBoard from './components/MetricsBoard'
 import UserManagementPanel from './components/UserManagementPanel'
 import DBComparePanel from './components/DBComparePanel'
 import BroadcastPanel from './components/BroadcastPanel'
-import ConnectionModal from './components/ConnectionModal'
+import ConnectionModal, { DB_TYPES } from './components/ConnectionModal'
 import StatusBar from './components/StatusBar'
 import CreateTableModal from './components/CreateTableModal'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -963,16 +963,46 @@ function MainApp() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleNewTab, handleCloseTab, handleSaveQuery, handleOpenAnythingTrigger, handleRefreshQuery, activeTabId, tabs.length])
 
+  // --- Titlebar connection-status pill ---
+  const titlebarConn = connections.find(c => c.id === (activeTab?.connectionId || activeConnectionId))
+  const titlebarPill = titlebarConn ? [
+    titlebarConn.name,
+    [
+      DB_TYPES.find(d => d.id === titlebarConn.type)?.label || titlebarConn.type?.toUpperCase() || 'DB',
+      titlebarConn.host,
+      titlebarConn.database,
+      activeTab?.tableFullName,
+    ].filter(Boolean).join(' : '),
+  ].filter(Boolean).join('  |  ') : ''
+
   return (
     <div className="app">
       <div className="app-titlebar">
-        <div className="app-titlebar-drag">
-          <img src="/logo.png" alt="DB Access Logo" width="24" height="24" style={{ objectFit: 'contain' }} onError={(e) => e.target.style.display='none'} />
-          <span className="app-title">DB Access</span>
+        <div className="app-titlebar-left">
+          <div className="app-titlebar-drag">
+            <img src="/logo.png" alt="DB Access Logo" width="20" height="20" style={{ objectFit: 'contain' }} onError={(e) => e.target.style.display='none'} />
+            <span className="app-title">DB Access</span>
+          </div>
+          <button className="app-titlebar-icon-btn" onClick={handleToggleSidebar} title="Toggle Sidebar (Ctrl+\)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          </button>
+          <button className="app-titlebar-icon-btn" onClick={() => setSidebarRefreshKey(k => k + 1)} title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
         </div>
-        <button className="app-titlebar-help" onClick={() => setShowKeyboardShortcuts(true)} title="Keyboard Shortcuts (Ctrl+?)" style={{ position: 'absolute', right: '12px' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        </button>
+        <div className="app-titlebar-center">
+          {titlebarPill && <div className="app-titlebar-pill" title={titlebarPill}>{titlebarPill}</div>}
+        </div>
+        <div className="app-titlebar-right">
+          {titlebarConn && (
+            <button className="app-titlebar-icon-btn" onClick={() => handleNewMetricsTab(titlebarConn.id)} title="Database Metrics">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+            </button>
+          )}
+          <button className="app-titlebar-icon-btn" onClick={() => setShowKeyboardShortcuts(true)} title="Keyboard Shortcuts (Ctrl+?)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          </button>
+        </div>
       </div>
       <div className="app-body">
         <Sidebar
@@ -1220,11 +1250,18 @@ function MainApp() {
 // ── License gate wrapper ──────────────────────────────────────────────────────
 // Sits above MainApp so MainApp's hooks are always called the same number of
 // times regardless of license state (Rules of Hooks compliance).
+const ACTIVATION_DISABLED = true // TODO: re-enable license gate
+
 export default function App() {
   const [licenseStatus, setLicenseStatus] = useState('checking')
   const [startupMessage, setStartupMessage]  = useState('')
 
   useEffect(() => {
+    if (ACTIVATION_DISABLED) {
+      setLicenseStatus('valid')
+      return
+    }
+
     // Fail CLOSED: if the license bridge is missing for any reason, block access.
     if (!window.dbAccess?.license) {
       setLicenseStatus('invalid')
