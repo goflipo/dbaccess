@@ -10,11 +10,11 @@
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-.tabbar-tabs::-webkit-scrollbar { height: 3px; }
+.tabbar-tabs::-webkit-scrollbar { height: 1px; }
 .tabbar-tabs::-webkit-scrollbar-track { background: transparent; }
 .tabbar-tabs::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 2px;
+  border-radius: 0;
 }
 .tabbar-tabs::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 .tab {
