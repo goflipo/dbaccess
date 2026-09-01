@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import './TableStructurePanel.css'
 
-export default function TableStructurePanel({ connectionId, tableName, onClose }) {
-  const [activeTab, setActiveTab] = useState('columns')
+export default function TableStructurePanel({ connectionId, tableName, onClose, initialTab }) {
+  const [activeTab, setActiveTab] = useState(initialTab || 'columns')
   const [structure, setStructure] = useState([])
   const [indexes, setIndexes] = useState([])
   const [foreignKeys, setForeignKeys] = useState([])

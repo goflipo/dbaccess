@@ -54,7 +54,7 @@
 .sidebar-filter-input:focus {
   border-color: var(--accent-primary);
   background: var(--bg-primary);
-  box-shadow: 0 0 0 2px rgba(108, 123, 247, 0.1);
+  box-shadow: 0 0 0 2px var(--accent-primary-bg);
 }
 .sidebar-filter-clear {
   position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
@@ -513,17 +513,17 @@
   opacity: 1;
 }
 .sidebar-table-checkbox.checked {
-  color: #6366f1;
+  color: var(--accent-primary);
 }
 .sidebar-table-checkbox:hover {
   background: var(--bg-active);
 }
 
 .sidebar-table.table-selected {
-  background: color-mix(in srgb, #6366f1 10%, var(--bg-hover));
+  background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
 }
 .sidebar-table.table-selected:hover {
-  background: color-mix(in srgb, #6366f1 16%, var(--bg-hover));
+  background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-hover));
 }
 .sidebar-table.table-selected .sidebar-table-main {
   color: var(--text-primary);
@@ -533,14 +533,14 @@
   display: flex; align-items: center; gap: 6px;
   margin: 6px 8px 4px;
   padding: 7px 10px;
-  background: color-mix(in srgb, #6366f1 12%, var(--bg-tertiary));
-  border: 1px solid color-mix(in srgb, #6366f1 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-tertiary));
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, var(--border-subtle));
   border-radius: 7px;
   animation: fadeIn 0.15s ease;
 }
 .sidebar-sel-count {
   font-size: 11px; font-weight: 600;
-  color: #a5b4fc; flex: 1;
+  color: var(--accent-primary-hover); flex: 1;
 }
 .sidebar-sel-clear {
   background: none; border: 1px solid var(--border-subtle);

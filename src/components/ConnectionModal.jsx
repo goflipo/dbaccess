@@ -5,7 +5,7 @@ const CONNECTION_COLORS = [
   '#6c7bf7', '#3dd68c', '#f76c6c', '#f7c948', '#4ecdc4', '#a78bfa', '#f472b6', '#fb923c'
 ]
 
-const DB_TYPES = [
+export const DB_TYPES = [
   { id: 'postgres',    label: 'PostgreSQL',    group: 'SQL' },
   { id: 'mysql',       label: 'MySQL',         group: 'SQL' },
   { id: 'mariadb',     label: 'MariaDB',       group: 'SQL' },

@@ -82,6 +82,8 @@ function Sidebar({
   const [filterText, setFilterText] = useState('')
   const [viewMode, setViewMode] = useState('items')
   const [historySearch, setHistorySearch] = useState('')
+  const [favorites, setFavorites] = useState([])
+  const [favoritesSearch, setFavoritesSearch] = useState('')
   const [isPending, startTransition] = useTransition()
   // Internally loaded tables per connection
   const [tables, setTables] = useState({})
@@ -188,6 +190,22 @@ function Sidebar({
     const handleClickOutside = () => { setContextMenu(null); setShowDbPicker({}) }
     window.addEventListener('click', handleClickOutside)
     return () => window.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  // Load saved query favorites when the Queries tab is opened
+  useEffect(() => {
+    if (viewMode !== 'queries' || !window.dbAccess) return
+    let cancelled = false
+    window.dbAccess.getFavorites().then(result => {
+      if (!cancelled && result.success) setFavorites(result.data)
+    })
+    return () => { cancelled = true }
+  }, [viewMode])
+
+  const handleDeleteFavorite = useCallback(async (e, id) => {
+    e.stopPropagation()
+    await window.dbAccess.deleteFavorite(id)
+    setFavorites(prev => prev.filter(f => f.id !== id))
   }, [])
 
   // Load database list and then tables for a connection
@@ -341,13 +359,17 @@ function Sidebar({
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
           Items
         </button>
+        <button className={`mode-btn ${viewMode === 'queries' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('queries'))}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Queries
+        </button>
         <button className={`mode-btn ${viewMode === 'history' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('history'))}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           {isPending && viewMode !== 'history' ? <span className="sidebar-history-spinner" style={{marginLeft: 4}} /> : 'History'}
         </button>
       </div>
       <div className="sidebar-header">
-        <span className="sidebar-label">{viewMode === 'items' ? 'CONNECTIONS' : 'RECENT QUERIES'}</span>
+        <span className="sidebar-label">{viewMode === 'items' ? 'CONNECTIONS' : viewMode === 'queries' ? 'SAVED QUERIES' : 'RECENT QUERIES'}</span>
         <div className="sidebar-header-actions">
           {viewMode === 'items' && (
             <>
@@ -367,17 +389,37 @@ function Sidebar({
 
       <div className="sidebar-content">
         <div className="sidebar-filter-wrapper">
-          <input 
-            type="text" 
-            className="sidebar-filter-input" 
-            placeholder={viewMode === 'items' ? "Filter tables..." : "Search history..."} 
-            value={viewMode === 'items' ? filterText : historySearch}
-            onChange={e => viewMode === 'items' ? setFilterText(e.target.value) : setHistorySearch(e.target.value)}
+          <input
+            type="text"
+            className="sidebar-filter-input"
+            placeholder={viewMode === 'items' ? "Filter tables..." : viewMode === 'queries' ? "Search queries..." : "Search history..."}
+            value={viewMode === 'items' ? filterText : viewMode === 'queries' ? favoritesSearch : historySearch}
+            onChange={e => viewMode === 'items' ? setFilterText(e.target.value) : viewMode === 'queries' ? setFavoritesSearch(e.target.value) : setHistorySearch(e.target.value)}
           />
-          {(filterText || historySearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterText(''); setHistorySearch(''); }}>✕</button>}
+          {(filterText || historySearch || favoritesSearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterText(''); setHistorySearch(''); setFavoritesSearch('') }}>✕</button>}
         </div>
 
-        {viewMode === 'history' ? (
+        {viewMode === 'queries' ? (
+          <div className="sidebar-history-list">
+            {favorites
+              .filter(f => f.name.toLowerCase().includes(favoritesSearch.toLowerCase()) || f.sql.toLowerCase().includes(favoritesSearch.toLowerCase()))
+              .map(f => (
+                <div key={f.id} className="history-item" onClick={() => onNewTab && onNewTab(null, f.sql, f.connectionName)}>
+                  <div className="history-item-header">
+                    <span className="history-conn">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--accent-yellow)" stroke="var(--accent-yellow)" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                      {f.name}
+                    </span>
+                    <button className="sidebar-delete-btn" onClick={(e) => handleDeleteFavorite(e, f.id)} title="Delete favorite">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                  <div className="history-sql">{f.sql}</div>
+                </div>
+              ))}
+            {favorites.length === 0 && <div className="sidebar-empty">No saved queries yet</div>}
+          </div>
+        ) : viewMode === 'history' ? (
           <div className="sidebar-history-list">
             {queryHistory === null ? (
               <div className="sidebar-history-loader">
