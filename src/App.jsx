@@ -837,10 +837,9 @@ function MainApp() {
 
     const tabId = genId()
     const connObj = connections.find(c => c.id === connId)
-    const isPostgres = !connObj?.type || ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connObj?.type)
-    const query = isPostgres
-      ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT 100;`
-      : `SELECT * FROM ${tableName} LIMIT 100;`
+    // Plain, readable SQL by default. Postgres edits still work without ctid —
+    // ResultsGrid falls back to matching on all column values for the WHERE clause.
+    const query = `SELECT * FROM ${tableName} LIMIT 100;`
     const dbName = activeDb || connObj?.database || ''
     const shortName = tableName.split('.').pop()
     const tabTitle = dbName ? `${dbName}.${shortName}` : tableName
