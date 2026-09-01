@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useTransition } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useTransition } from 'react'
 import './Sidebar.css'
 
 function Sidebar({
@@ -104,6 +104,20 @@ function Sidebar({
   })
   const [menuPos, setMenuPos] = useState({ top: -9999, left: -9999 })
   const menuRef = useRef(null)
+  const [openSubmenu, setOpenSubmenu] = useState(null)
+  const submenuRef = useRef(null)
+  const [submenuStyle, setSubmenuStyle] = useState({})
+
+  // Flip the open context-menu submenu up/left when it would otherwise overflow the window
+  useLayoutEffect(() => {
+    if (!openSubmenu || !submenuRef.current) { setSubmenuStyle({}); return }
+    const rect = submenuRef.current.getBoundingClientRect()
+    const MARGIN = 8
+    const style = {}
+    if (rect.bottom > window.innerHeight - MARGIN) { style.top = 'auto'; style.bottom = -4 }
+    if (rect.right > window.innerWidth - MARGIN) { style.left = 'auto'; style.right = '100%' }
+    setSubmenuStyle(style)
+  }, [openSubmenu])
   // Multi-table selection: { connId: Set<fullTableName> }
   const [selectedTables, setSelectedTables] = useState({})
   // Anchor for shift-click range selection: { connId: fullName }
@@ -191,6 +205,9 @@ function Sidebar({
     window.addEventListener('click', handleClickOutside)
     return () => window.removeEventListener('click', handleClickOutside)
   }, [])
+
+  // Close any open flyout submenu whenever the context menu itself opens/closes
+  useEffect(() => { setOpenSubmenu(null) }, [contextMenu])
 
   // Load saved query favorites when the Queries tab is opened
   useEffect(() => {
@@ -833,45 +850,69 @@ function Sidebar({
               
               <div className="context-menu-divider"></div>
               
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'export' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('export')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Export</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>To CSV</button>
-                  <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>To SQL</button>
-                </div>
+                {openSubmenu === 'export' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>To CSV</button>
+                    <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>To SQL</button>
+                  </div>
+                )}
               </div>
-              
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'import' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('import')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Import</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onImportCSV(contextMenu.connId); setContextMenu(null) }}>From CSV</button>
-                </div>
+                {openSubmenu === 'import' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onImportCSV(contextMenu.connId); setContextMenu(null) }}>From CSV</button>
+                  </div>
+                )}
               </div>
 
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'new' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('new')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>New</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onScaffoldNewTable(contextMenu.connId); setContextMenu(null) }}>Table</button>
-                </div>
+                {openSubmenu === 'new' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onScaffoldNewTable(contextMenu.connId); setContextMenu(null) }}>Table</button>
+                  </div>
+                )}
               </div>
 
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'copyscript' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('copyscript')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Copy Script As</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`SELECT * FROM ${contextMenu.tableName};`); setContextMenu(null) 
-                  }}>SELECT statement</button>
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`INSERT INTO ${contextMenu.tableName} () VALUES ();`); setContextMenu(null) 
-                  }}>INSERT statement</button>
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`UPDATE ${contextMenu.tableName} SET col = val WHERE id = ?;`); setContextMenu(null) 
-                  }}>UPDATE statement</button>
-                </div>
+                {openSubmenu === 'copyscript' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`SELECT * FROM ${contextMenu.tableName};`); setContextMenu(null)
+                    }}>SELECT statement</button>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`INSERT INTO ${contextMenu.tableName} () VALUES ();`); setContextMenu(null)
+                    }}>INSERT statement</button>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`UPDATE ${contextMenu.tableName} SET col = val WHERE id = ?;`); setContextMenu(null)
+                    }}>UPDATE statement</button>
+                  </div>
+                )}
               </div>
 
               <div className="context-menu-divider"></div>
