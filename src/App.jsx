@@ -1220,11 +1220,18 @@ function MainApp() {
 // ── License gate wrapper ──────────────────────────────────────────────────────
 // Sits above MainApp so MainApp's hooks are always called the same number of
 // times regardless of license state (Rules of Hooks compliance).
+const ACTIVATION_DISABLED = true // TODO: re-enable license gate
+
 export default function App() {
   const [licenseStatus, setLicenseStatus] = useState('checking')
   const [startupMessage, setStartupMessage]  = useState('')
 
   useEffect(() => {
+    if (ACTIVATION_DISABLED) {
+      setLicenseStatus('valid')
+      return
+    }
+
     // Fail CLOSED: if the license bridge is missing for any reason, block access.
     if (!window.dbAccess?.license) {
       setLicenseStatus('invalid')
