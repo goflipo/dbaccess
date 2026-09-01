@@ -1015,11 +1015,13 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
                       const isEditing = editingCell?.ri === globalIdx && editingCell?.ci === originalCi
                       const isCopied = copiedCell === `${globalIdx}:${originalCi}`
                       const isJsonObj = typeof val === 'object' && val !== null
+                      const isBool = typeof val === 'boolean'
+                      const isDate = !isNull && !isBool && parseAnyDate(val) !== null
 
                       return (
                         <td
                           key={ci}
-                          className={`${isNull ? 'cell-null' : ''} ${isPending ? 'cell-staged' : ''} ${isCopied ? 'cell-copied' : ''} ${isJsonObj ? 'cell-json' : ''}`}
+                          className={`${isNull ? 'cell-null' : ''} ${isPending ? 'cell-staged' : ''} ${isCopied ? 'cell-copied' : ''} ${isJsonObj ? 'cell-json' : ''} ${isBool ? 'cell-bool' : ''} ${isDate ? 'cell-date' : ''}`}
                           title={isNull ? 'NULL' : formatCellValue(val)}
                           onDoubleClick={() => handleCellDoubleClick(globalIdx, originalCi, val)}
                           onContextMenu={(e) => handleCellContextMenu(e, globalIdx, row, originalCi, val)}

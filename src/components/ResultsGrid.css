@@ -70,7 +70,7 @@
 }
 .results-filter:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(108, 123, 247, 0.1);
+  box-shadow: 0 0 0 2px var(--accent-primary-bg);
   width: 240px;
 }
 .results-btn-filter {
@@ -81,7 +81,7 @@
   cursor: pointer; transition: all var(--transition-fast);
 }
 .results-btn-filter:hover { background: var(--bg-hover); color: var(--text-primary); }
-.results-btn-filter.active { border-color: var(--accent-primary); color: var(--accent-primary); background: rgba(108, 123, 247, 0.08); }
+.results-btn-filter.active { border-color: var(--accent-primary); color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
 
 .results-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .results-action-btn {
@@ -155,9 +155,10 @@
   padding: 7px 12px; background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default);
   border-right: 1px solid var(--border-subtle);
-  text-align: left; font-weight: 600; font-size: 11px;
+  text-align: left; font-weight: 500; font-size: 11px;
   color: var(--text-secondary); white-space: nowrap;
-  text-transform: uppercase; letter-spacing: 0.3px;
+  text-transform: none; letter-spacing: 0.1px;
+  font-family: var(--font-mono);
   position: relative;
 }
 .col-type-tag {
@@ -208,13 +209,14 @@
 .results-table tbody tr { cursor: pointer; transition: background 0.1s; user-select: none; }
 .results-table tbody td { user-select: none; }
 .results-table tbody tr:hover td { background: var(--bg-hover); }
-.results-table tbody tr.row-selected td { background: rgba(108, 123, 247, 0.08); }
+.results-table tbody tr.row-selected td { background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-primary)); }
 .row-num {
   text-align: center; color: var(--text-tertiary); font-size: 10px;
   width: 40px; background: var(--bg-secondary) !important;
 }
 
 /* Cell states */
+.cell-bool, .cell-date { color: var(--accent-primary); }
 .cell-null { color: var(--text-tertiary) !important; }
 .null-badge {
   font-size: 9px; font-weight: 700; padding: 1px 5px;

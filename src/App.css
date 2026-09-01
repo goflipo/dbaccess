@@ -53,7 +53,7 @@
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
   color: white; font-weight: 600; font-size: 14px;
   transition: all var(--transition-fast);
-  box-shadow: 0 2px 12px rgba(108, 123, 247, 0.3);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent-primary) 30%, transparent);
   -webkit-app-region: no-drag;
 }
 .btn-primary:hover {
