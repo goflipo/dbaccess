@@ -10,15 +10,13 @@
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-.tabbar-tabs::-webkit-scrollbar { height: 1px; }
+.tabbar-tabs::-webkit-scrollbar { height: 3px; }
 .tabbar-tabs::-webkit-scrollbar-track { background: transparent; }
 .tabbar-tabs::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 2px;
-  border-top: 1px solid transparent;
-  background-clip: content-box;
 }
-.tabbar-tabs::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); background-clip: content-box; }
+.tabbar-tabs::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 .tab {
   display: flex; align-items: center; gap: 6px;
   padding: 0 14px; height: 100%; border: none; box-sizing: border-box;
