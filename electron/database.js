@@ -373,8 +373,16 @@ class DatabaseManager {
     const startTime = Date.now();
 
     if (PG_WIRE.has(conn.type)) {
-      const result = await conn.client.query(query);
-      const rows = (result.rows || []).map(row => {
+      const raw = await conn.client.query(query);
+      // node-postgres returns an ARRAY of Result objects (not a single Result)
+      // when `query` holds multiple ;-separated statements — e.g. every delete
+      // we issue as "BEGIN; DELETE ...; COMMIT;". Treating that array as a
+      // single Result silently yields rows=[]/rowCount=undefined with no error,
+      // masking whether the DELETE actually matched anything.
+      const results = Array.isArray(raw) ? raw : [raw];
+      const dataResult = [...results].reverse().find(r => r.fields && r.fields.length > 0) || results[results.length - 1];
+      const totalRowCount = results.reduce((sum, r) => sum + (typeof r.rowCount === 'number' ? r.rowCount : 0), 0);
+      const rows = (dataResult.rows || []).map(row => {
         const out = {};
         for (const [k, v] of Object.entries(row)) {
           out[k] = v instanceof Date ? v.toISOString() : v;
@@ -382,13 +390,13 @@ class DatabaseManager {
         return out;
       });
       return {
-        columns: result.fields ? result.fields.map(f => ({
+        columns: dataResult.fields ? dataResult.fields.map(f => ({
           name: f.name,
           dataType: PG_OID_TYPES[f.dataTypeID] || String(f.dataTypeID),
           dataTypeID: f.dataTypeID,
         })) : [],
-        rows, rowCount: result.rowCount,
-        duration: Date.now() - startTime, command: result.command,
+        rows, rowCount: totalRowCount,
+        duration: Date.now() - startTime, command: results[results.length - 1].command,
       };
 
     } else if (conn.type === 'clickhouse') {
@@ -402,13 +410,27 @@ class DatabaseManager {
       };
 
     } else if (MYSQL_WIRE.has(conn.type)) {
-      const [rows, fields] = await conn.client.query(query);
+      const [rawRows, rawFields] = await conn.client.query(query);
       const command = query.trim().split(/\s+/)[0].toUpperCase();
-      if (!Array.isArray(rows)) {
-        return { columns: [], rows: [], rowCount: rows.affectedRows || 0, duration: Date.now() - startTime, command };
+      if (!Array.isArray(rawRows)) {
+        return { columns: [], rows: [], rowCount: rawRows.affectedRows || 0, duration: Date.now() - startTime, command };
       }
-      const resultRows = Array.isArray(rows[0]) ? rows[rows.length - 1] : rows;
-      const resultFields = Array.isArray(fields?.[0]) ? fields[fields.length - 1] : fields;
+      // With multipleStatements enabled, mysql2 returns one entry per
+      // ;-separated statement — an array of row objects for a SELECT, or an
+      // OkPacket-like object (with `affectedRows`) for BEGIN/DELETE/COMMIT/etc.
+      // Our delete flow always sends "BEGIN; DELETE ...; COMMIT;", so without
+      // unwrapping this, the old code picked the trailing COMMIT packet (or
+      // mis-mapped the whole array) instead of the DELETE's affected-row count.
+      const isMultiStatement = rawRows.length === 0 || Array.isArray(rawRows[0]) || typeof rawRows[0]?.affectedRows === 'number';
+      const perStatementRows = isMultiStatement ? rawRows : [rawRows];
+      const perStatementFields = isMultiStatement ? rawFields : [rawFields];
+      let lastSelectIdx = -1;
+      for (let i = 0; i < perStatementRows.length; i++) {
+        if (Array.isArray(perStatementRows[i])) lastSelectIdx = i;
+      }
+      const totalAffected = perStatementRows.reduce((sum, r) => sum + (!Array.isArray(r) && typeof r?.affectedRows === 'number' ? r.affectedRows : 0), 0);
+      const resultRows = lastSelectIdx >= 0 ? perStatementRows[lastSelectIdx] : [];
+      const resultFields = lastSelectIdx >= 0 ? perStatementFields[lastSelectIdx] : undefined;
       const normalizedRows = resultRows.map(row => {
         const out = {};
         for (const [k, v] of Object.entries(row)) {
@@ -423,7 +445,7 @@ class DatabaseManager {
           dataTypeID: f.type,
         })) : [],
         rows: normalizedRows,
-        rowCount: normalizedRows.length,
+        rowCount: lastSelectIdx >= 0 ? normalizedRows.length : totalAffected,
         duration: Date.now() - startTime,
         command,
       };

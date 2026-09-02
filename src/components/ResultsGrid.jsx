@@ -722,24 +722,32 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
       sql += 'COMMIT;'
       const delRes = await onRunQuery(sql)
       if (delRes?.success) {
-        if (onSaveDeleteHistory) {
-          onSaveDeleteHistory({
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            timestamp: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            connectionId,
-            connectionName: connectionName || '',
-            tableName: sourceTable,
-            operation: 'delete',
-            rowCount: rowsToDelete.length,
-            rows: rowsToDelete,
-            cascadeRows,
-            cascadeRowCount: cascadeRows.reduce((s, c) => s + c.rowCount, 0),
-            restorable: true,
-          })
+        const affected = delRes.data?.rowCount
+        if (typeof affected === 'number' && affected === 0) {
+          // Query ran without error but matched nothing — surface this instead of
+          // reporting a false success (e.g. rows already changed/removed elsewhere).
+          showToast('No matching rows were deleted — they may have already changed or been removed.', 'error')
+        } else {
+          if (onSaveDeleteHistory) {
+            onSaveDeleteHistory({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              timestamp: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              connectionId,
+              connectionName: connectionName || '',
+              tableName: sourceTable,
+              operation: 'delete',
+              rowCount: rowsToDelete.length,
+              rows: rowsToDelete,
+              cascadeRows,
+              cascadeRowCount: cascadeRows.reduce((s, c) => s + c.rowCount, 0),
+              restorable: true,
+            })
+          }
+          showToast(`Deleted ${rowsToDelete.length} row${rowsToDelete.length !== 1 ? 's' : ''}${doCascade && cascadeRows.length > 0 ? ' + cascade' : ''}`, 'success')
         }
-        showToast(`Deleted ${rowsToDelete.length} row${rowsToDelete.length !== 1 ? 's' : ''}${doCascade && cascadeRows.length > 0 ? ' + cascade' : ''}`, 'success')
-        if (sourceTable) await onRunQuery(`SELECT * FROM ${sourceTable};`)
+        if (onRefresh) await onRefresh()
+        else if (sourceTable) await onRunQuery(`SELECT * FROM ${sourceTable};`)
         setSelectedRows(new Set())
       } else {
         showToast(`Delete failed: ${delRes?.error || 'Unknown error'}`, 'error')
