@@ -449,7 +449,17 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
         const parts = []
         if (editCount > 0) parts.push(`${editCount} edit${editCount !== 1 ? 's' : ''}`)
         if (insertCount > 0) parts.push(`${insertCount} row${insertCount !== 1 ? 's' : ''} inserted`)
-        showToast(parts.join(', ') + ' saved', 'success')
+        // Each UPDATE/INSERT statement should affect exactly one row; if the
+        // reported total is short, at least one UPDATE's WHERE matched nothing
+        // (e.g. the row changed/was removed elsewhere) — surface that instead
+        // of a blanket success, same as the delete flow does.
+        const expectedMin = editCount + insertCount
+        const affected = res.data?.rowCount
+        if (typeof affected === 'number' && affected < expectedMin) {
+          showToast(`${parts.join(', ')} attempted, but only ${affected} row${affected !== 1 ? 's' : ''} actually changed — some edits may not have matched (row changed or removed elsewhere).`, 'error')
+        } else {
+          showToast(parts.join(', ') + ' saved', 'success')
+        }
         onRefresh?.()
       } else {
         showToast(`Commit failed: ${res?.error || 'Unknown error'}`, 'error')
@@ -555,14 +565,10 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
         break
       case 'insert': {
         const tableName = sourceTable || 'table_name'
-        const cols = keys.join(', ')
+        const insertKeys = keys.filter(k => k !== '__db_ctid')
+        const cols = insertKeys.map(k => `"${k}"`).join(', ')
         result = multiRows.map(row => {
-          const sqlVals = keys.map(k => {
-            const v = row[k]
-            if (v === null || v === undefined) return 'NULL'
-            if (typeof v === 'number') return v
-            return `'${formatCellValue(v).replace(/'/g, "''")}'`
-          }).join(', ')
+          const sqlVals = insertKeys.map(k => sqlLiteral(row[k])).join(', ')
           return `INSERT INTO ${tableName} (${cols}) VALUES (${sqlVals});`
         }).join('\n')
         break

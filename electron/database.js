@@ -40,6 +40,42 @@ const PG_WIRE = new Set(['postgres', 'cockroachdb', 'greenplum', 'redshift']);
 // Types that use the mysql2 driver (MySQL wire protocol)
 const MYSQL_WIRE = new Set(['mysql', 'mariadb']);
 
+// Splits a ";"-separated SQL script into individual statements, honoring
+// quoted strings/identifiers so a ";" inside a value or a quoted name isn't
+// mistaken for a statement boundary. Used for engines (sqlite, libsql) whose
+// driver can't run a whole multi-statement "BEGIN; ...; COMMIT;" script (the
+// shape the UI always sends for row edit/delete) in one call.
+function splitSqlStatements(sql) {
+  const statements = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    current += ch;
+    if (inSingle) {
+      if (ch === "'") {
+        if (sql[i + 1] === "'") { current += sql[++i]; } else { inSingle = false; }
+      }
+    } else if (inDouble) {
+      if (ch === '"') {
+        if (sql[i + 1] === '"') { current += sql[++i]; } else { inDouble = false; }
+      }
+    } else if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '"') {
+      inDouble = true;
+    } else if (ch === ';') {
+      const trimmed = current.slice(0, -1).trim();
+      if (trimmed) statements.push(trimmed);
+      current = '';
+    }
+  }
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
 class DatabaseManager {
   constructor() {
     this.connections = new Map();
@@ -453,7 +489,17 @@ class DatabaseManager {
     } else if (conn.type === 'sqlite' || conn.type === 'libsql') {
       const command = query.trim().split(/\s+/)[0].toUpperCase();
       if (conn.type === 'sqlite') {
-        const stmt = conn.client.prepare(query);
+        let stmt;
+        try {
+          stmt = conn.client.prepare(query);
+        } catch (err) {
+          // better-sqlite3 can only prepare() one statement at a time and has
+          // no bare BEGIN/COMMIT support — this is what the UI's "BEGIN; ...;
+          // COMMIT;" edit/delete scripts hit. Fall back to splitting the
+          // script and running it inside a real transaction() for atomicity.
+          if (!/more than one statement/i.test(err.message)) throw err;
+          return this._executeSqliteScript(conn, query, startTime);
+        }
         if (['SELECT', 'WITH', 'PRAGMA', 'EXPLAIN', 'VALUES'].includes(command)) {
           const rows = stmt.all();
           const columns = rows.length > 0 ? Object.keys(rows[0]).map(name => ({ name, dataType: 'text' })) : [];
@@ -462,15 +508,33 @@ class DatabaseManager {
         const info = stmt.run();
         return { columns: [], rows: [], rowCount: info.changes, duration: Date.now() - startTime, command };
       } else {
+        // A lone "SELECT ...;" still has one trailing semicolon — only treat
+        // it as a multi-statement script when something follows that ";".
+        if (/;\s*\S/.test(query)) {
+          return await this._executeLibsqlScript(conn, query, startTime);
+        }
         const rs = await conn.client.execute(query);
-        const rows = rs.rows.map(r => Object.fromEntries(rs.columns.map((c, i) => [c.name, r[i]])));
-        const columns = rs.columns.map(c => ({ name: c.name, dataType: c.type || 'text' }));
-        return { columns, rows, rowCount: rs.rowsAffected ?? rows.length, duration: Date.now() - startTime, command };
+        // rs.columns is Array<string> (column names), not objects — there is
+        // no per-column .name/.type to read.
+        const rows = rs.rows.map(r => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])));
+        const columns = rs.columns.map((c, i) => ({ name: c, dataType: rs.columnTypes?.[i] || 'text' }));
+        return { columns, rows, rowCount: rows.length > 0 ? rows.length : rs.rowsAffected, duration: Date.now() - startTime, command };
       }
 
     } else if (conn.type === 'mssql') {
       const command = query.trim().split(/\s+/)[0].toUpperCase();
-      const result = await conn.client.request().query(query);
+      // The UI always wraps row edit/delete SQL as "BEGIN; ...; COMMIT;". T-SQL's
+      // bare BEGIN opens a BEGIN...END block (not a transaction) and needs a
+      // matching END, so that exact shape fails to parse on SQL Server. Promote
+      // it to real T-SQL transaction syntax when we recognize that wrapper.
+      let effectiveQuery = query;
+      const trimmed = query.trim();
+      if (/^BEGIN\s*;/i.test(trimmed) && /COMMIT\s*;?\s*$/i.test(trimmed)) {
+        effectiveQuery = trimmed
+          .replace(/^BEGIN\s*;/i, 'BEGIN TRANSACTION;')
+          .replace(/COMMIT\s*;?\s*$/i, 'COMMIT TRANSACTION;');
+      }
+      const result = await conn.client.request().query(effectiveQuery);
       const rs = result.recordset || [];
       const affected = (result.rowsAffected || []).reduce((a, b) => a + b, 0);
       const columns = rs.length > 0
@@ -526,16 +590,77 @@ class DatabaseManager {
 
     } else if (conn.type === 'vertica') {
       const command = query.trim().split(/\s+/)[0].toUpperCase();
-      const result = await new Promise((resolve, reject) => {
+      const raw = await new Promise((resolve, reject) => {
         conn.client.query(query, (err, res) => err ? reject(err) : resolve(res));
       });
-      const rows = result.rows || [];
-      const columns = result.fields ? result.fields.map(f => ({ name: f.name, dataType: f.dataType || 'text' }))
+      // vertica-nodejs is a pg-protocol-derived driver; guard against it also
+      // returning an array of per-statement results for a multi-statement
+      // script (the same shape node-postgres uses, fixed for PG_WIRE above),
+      // instead of assuming a single Result object.
+      const results = Array.isArray(raw) ? raw : [raw];
+      const dataResult = [...results].reverse().find(r => r.fields && r.fields.length > 0) || results[results.length - 1];
+      const totalRowCount = results.reduce((sum, r) => sum + (typeof r.rowCount === 'number' ? r.rowCount : (r.rows ? r.rows.length : 0)), 0);
+      const rows = dataResult.rows || [];
+      const columns = dataResult.fields ? dataResult.fields.map(f => ({ name: f.name, dataType: f.dataType || 'text' }))
         : rows.length > 0 ? Object.keys(rows[0]).map(n => ({ name: n, dataType: 'text' })) : [];
-      return { columns, rows, rowCount: rows.length, duration: Date.now() - startTime, command };
+      return { columns, rows, rowCount: rows.length > 0 ? rows.length : totalRowCount, duration: Date.now() - startTime, command };
     }
 
     throw new Error(`executeQuery not supported for type: ${conn.type}`);
+  }
+
+  // Runs a "BEGIN; stmt1; stmt2; ...; COMMIT;" script against better-sqlite3,
+  // which can only prepare() one statement per call. Splits it into individual
+  // statements (dropping the BEGIN/COMMIT/ROLLBACK markers, which better-sqlite3
+  // has no bare-SQL equivalent for) and runs them inside a real transaction()
+  // so the whole script stays atomic.
+  _executeSqliteScript(conn, query, startTime) {
+    const statements = splitSqlStatements(query).filter(s => !/^(BEGIN|COMMIT|ROLLBACK)\b/i.test(s));
+    let totalChanges = 0;
+    let lastRows = [];
+    let lastColumns = [];
+    const runAll = conn.client.transaction(() => {
+      for (const stmtSql of statements) {
+        const cmd = stmtSql.trim().split(/\s+/)[0].toUpperCase();
+        const stmt = conn.client.prepare(stmtSql);
+        if (['SELECT', 'WITH', 'PRAGMA', 'EXPLAIN', 'VALUES'].includes(cmd)) {
+          lastRows = stmt.all();
+          lastColumns = lastRows.length > 0 ? Object.keys(lastRows[0]).map(name => ({ name, dataType: 'text' })) : [];
+        } else {
+          const info = stmt.run();
+          totalChanges += info.changes;
+        }
+      }
+    });
+    runAll();
+    return {
+      columns: lastColumns, rows: lastRows,
+      rowCount: lastRows.length > 0 ? lastRows.length : totalChanges,
+      duration: Date.now() - startTime, command: 'BEGIN',
+    };
+  }
+
+  // Runs a "BEGIN; stmt1; stmt2; ...; COMMIT;" script against @libsql/client,
+  // whose execute() only accepts a single statement. batch() runs an array of
+  // statements atomically and reports rowsAffected per statement.
+  async _executeLibsqlScript(conn, query, startTime) {
+    const statements = splitSqlStatements(query).filter(s => !/^(BEGIN|COMMIT|ROLLBACK)\b/i.test(s));
+    const results = await conn.client.batch(statements, 'write');
+    let totalAffected = 0;
+    let lastRows = [];
+    let lastColumns = [];
+    for (const rs of results) {
+      totalAffected += rs.rowsAffected || 0;
+      if (rs.rows && rs.rows.length > 0) {
+        lastRows = rs.rows.map(r => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])));
+        lastColumns = rs.columns.map((c, i) => ({ name: c, dataType: rs.columnTypes?.[i] || 'text' }));
+      }
+    }
+    return {
+      columns: lastColumns, rows: lastRows,
+      rowCount: lastRows.length > 0 ? lastRows.length : totalAffected,
+      duration: Date.now() - startTime, command: 'BEGIN',
+    };
   }
 
   async _executeMongoQuery(conn, query, startTime) {
