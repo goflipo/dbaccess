@@ -180,7 +180,9 @@
 .editor-container .cm-editor {
   height: 100% !important;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--app-font-size, 13px);
+  font-weight: var(--app-font-weight, 400);
+  font-style: var(--app-font-style, normal);
   overflow: hidden !important;
   pointer-events: auto;
 }

@@ -61,6 +61,7 @@ export default function KeyboardShortcutsModal({ onClose }) {
       { keys: 'DROP / DELETE / TRUNCATE / ALTER', action: 'Prompts confirmation when Safe Mode is ON' },
     ]},
     { category: 'General', shortcuts: [
+      { keys: 'Ctrl+Shift+N', action: 'Open a new app window' },
       { keys: 'Ctrl+?', action: 'Show this shortcuts reference' },
       { keys: 'Escape', action: 'Close modals & dropdown panels' },
     ]},

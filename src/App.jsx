@@ -29,6 +29,13 @@ const genId = () => Date.now().toString(36) + Math.random().toString(36).substr(
 // Dangerous keywords that safe mode should block
 const DESTRUCTIVE_PATTERN = /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i
 
+const DEFAULT_SETTINGS = { pageSize: 100, density: 'normal', fontSize: 'medium', fontStyle: 'normal', showGridLines: true, accentColor: 'blue' }
+const FONT_STYLE_MAP = {
+  normal: { weight: '400', style: 'normal' },
+  bold: { weight: '700', style: 'normal' },
+  italic: { weight: '400', style: 'italic' },
+}
+
 function MainApp() {
   // ResultsGrid wires this ref so Ctrl+S commits grid edits instead of saving query to file
   const gridCommitRef = React.useRef(null)
@@ -52,6 +59,7 @@ function MainApp() {
 
   const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('dbaccess:activeTabId') || null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('dbaccess:sidebarCollapsed') === 'true')
+  const [resultsPanelVisible, setResultsPanelVisible] = useState(() => localStorage.getItem('dbaccess:resultsPanelVisible') !== 'false')
   const [statusMessage, setStatusMessage] = useState({ text: 'Ready', type: 'info' })
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [showOpenAnything, setShowOpenAnything] = useState(false)
@@ -71,8 +79,8 @@ function MainApp() {
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem('dbaccess:settings')
-      return saved ? JSON.parse(saved) : { pageSize: 100, density: 'normal', fontSize: 'medium' }
-    } catch { return { pageSize: 100, density: 'normal', fontSize: 'medium' } }
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS
+    } catch { return DEFAULT_SETTINGS }
   })
   const [showSettings, setShowSettings] = useState(false)
   const [showTour, setShowTour] = useState(() => !localStorage.getItem('dbaccess:tour-done'))
@@ -155,7 +163,11 @@ function MainApp() {
   React.useEffect(() => {
     localStorage.setItem('dbaccess:settings', JSON.stringify(settings))
     const sizes = { small: '11px', medium: '13px', large: '15px' }
-    document.documentElement.style.fontSize = sizes[settings.fontSize] || '13px'
+    document.documentElement.style.setProperty('--app-font-size', sizes[settings.fontSize] || '13px')
+    document.documentElement.setAttribute('data-accent', settings.accentColor || 'blue')
+    const fs = FONT_STYLE_MAP[settings.fontStyle] || FONT_STYLE_MAP.normal
+    document.documentElement.style.setProperty('--app-font-weight', fs.weight)
+    document.documentElement.style.setProperty('--app-font-style', fs.style)
   }, [settings])
 
   // Global safety: if any error/unhandled rejection/blur/visibility change occurs,
@@ -187,6 +199,27 @@ function MainApp() {
   const handleChangeSettings = (updates) => setSettings(prev => ({ ...prev, ...updates }))
 
   const activeTab = tabs.find(t => t.id === activeTabId)
+
+  // Tabs belong to whichever connection opened them. When the focused connection
+  // changes (e.g. via the sidebar's connection rail), only that connection's tabs
+  // show in the tab bar — the others are just hidden, not closed, and switching
+  // back restores them exactly as they were.
+  const visibleTabs = tabs.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+  const lastActiveTabByConnRef = React.useRef({})
+
+  useEffect(() => {
+    if (activeTab?.connectionId) lastActiveTabByConnRef.current[activeTab.connectionId] = activeTab.id
+  }, [activeTabId])
+
+  useEffect(() => {
+    if (!activeConnectionId) return
+    if (activeTab && (!activeTab.connectionId || activeTab.connectionId === activeConnectionId)) return
+    const remembered = lastActiveTabByConnRef.current[activeConnectionId]
+    const rememberedTab = remembered && tabs.find(t => t.id === remembered)
+    if (rememberedTab) { setActiveTabId(rememberedTab.id); return }
+    const firstMatch = tabs.find(t => t.connectionId === activeConnectionId)
+    setActiveTabId(firstMatch ? firstMatch.id : null)
+  }, [activeConnectionId])
 
   const showStatus = useCallback((text, type = 'info') => {
     const safeText = typeof text === 'object' ? JSON.stringify(text) : String(text)
@@ -239,9 +272,14 @@ function MainApp() {
     localStorage.setItem('dbaccess:sidebarCollapsed', sidebarCollapsed)
   }, [sidebarCollapsed])
 
+  React.useEffect(() => {
+    localStorage.setItem('dbaccess:resultsPanelVisible', resultsPanelVisible)
+  }, [resultsPanelVisible])
+
   // Stable callback identities for props passed to memoized Sidebar/QueryEditor/
   // ResultsGrid — inline arrow functions in JSX would defeat React.memo every render.
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed(c => !c), [])
+  const handleToggleResultsPanel = useCallback(() => setResultsPanelVisible(v => !v), [])
   const handleOpenNewConnectionModal = useCallback(() => {
     setEditingConnection(null)
     setShowConnectionModal(true)
@@ -806,20 +844,28 @@ function MainApp() {
   const handleCloseTab = useCallback((tabId) => {
     setTabs(prev => {
       const remaining = prev.filter(t => t.id !== tabId)
-      if (activeTabId === tabId && remaining.length > 0) setActiveTabId(remaining[remaining.length - 1].id)
-      else if (remaining.length === 0) setActiveTabId(null)
+      if (activeTabId === tabId) {
+        // Only replace with another tab from the currently focused connection —
+        // never jump the view into a different (hidden) connection's tab.
+        const visibleRemaining = remaining.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+        setActiveTabId(visibleRemaining.length > 0 ? visibleRemaining[visibleRemaining.length - 1].id : null)
+      }
       return remaining
     })
-  }, [activeTabId])
+  }, [activeTabId, activeConnectionId])
 
+  // "Close All" / "Close Others" only act on the currently visible tabs (the
+  // focused connection's) — tabs hidden because they belong to another
+  // connection are left untouched, matching visibleTabs' filter above.
   const handleCloseAllTabs = useCallback(() => {
-    setTabs([]); setActiveTabId(null)
-  }, [])
+    setTabs(prev => prev.filter(t => t.connectionId && t.connectionId !== activeConnectionId))
+    setActiveTabId(null)
+  }, [activeConnectionId])
 
   const handleCloseOtherTabs = useCallback((tabId) => {
-    setTabs(prev => prev.filter(t => t.id === tabId))
+    setTabs(prev => prev.filter(t => t.id === tabId || (t.connectionId && t.connectionId !== activeConnectionId)))
     setActiveTabId(tabId)
-  }, [])
+  }, [activeConnectionId])
 
   const handleTableClick = useCallback(async (tableName, connectionId, activeDb) => {
     const connId = connectionId || activeConnectionId
@@ -929,7 +975,8 @@ function MainApp() {
   React.useEffect(() => {
     const handleKeyDown = (e) => {
       const isMod = e.ctrlKey || e.metaKey
-      if (isMod && e.key === 't') { e.preventDefault(); handleNewTab() }
+      if (isMod && e.shiftKey && (e.key === 'N' || e.key === 'n')) { e.preventDefault(); window.dbAccess.newWindow() }
+      else if (isMod && e.key === 't') { e.preventDefault(); handleNewTab() }
       else if (isMod && e.key === 'w') { e.preventDefault(); if (activeTabId) handleCloseTab(activeTabId) }
       else if (isMod && e.key === 's') {
         e.preventDefault()
@@ -941,17 +988,20 @@ function MainApp() {
       else if (isMod && e.key === '[') {
         e.preventDefault()
         setTabs(prev => {
-          if (prev.length <= 1) return prev
-          const idx = prev.findIndex(t => t.id === activeTabId)
-          setActiveTabId(prev[(idx - 1 + prev.length) % prev.length].id)
+          // Cycle only within the focused connection's visible tabs.
+          const visible = prev.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+          if (visible.length <= 1) return prev
+          const idx = visible.findIndex(t => t.id === activeTabId)
+          setActiveTabId(visible[(idx - 1 + visible.length) % visible.length].id)
           return prev
         })
       } else if (isMod && e.key === ']') {
         e.preventDefault()
         setTabs(prev => {
-          if (prev.length <= 1) return prev
-          const idx = prev.findIndex(t => t.id === activeTabId)
-          setActiveTabId(prev[(idx + 1) % prev.length].id)
+          const visible = prev.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+          if (visible.length <= 1) return prev
+          const idx = visible.findIndex(t => t.id === activeTabId)
+          setActiveTabId(visible[(idx + 1) % visible.length].id)
           return prev
         })
       } else if (isMod && e.key === 'k') {
@@ -964,7 +1014,7 @@ function MainApp() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleNewTab, handleCloseTab, handleSaveQuery, handleOpenAnythingTrigger, handleRefreshQuery, activeTabId, tabs.length])
+  }, [handleNewTab, handleCloseTab, handleSaveQuery, handleOpenAnythingTrigger, handleRefreshQuery, activeTabId, activeConnectionId, tabs.length])
 
   // --- Titlebar connection-status pill ---
   const titlebarConn = connections.find(c => c.id === (activeTab?.connectionId || activeConnectionId))
@@ -997,6 +1047,9 @@ function MainApp() {
           {titlebarPill && <div className="app-titlebar-pill" title={titlebarPill}>{titlebarPill}</div>}
         </div>
         <div className="app-titlebar-right">
+          <button className="app-titlebar-icon-btn" onClick={() => window.dbAccess.newWindow()} title="New Window (Ctrl+Shift+N)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="12" y1="14" x2="12" y2="17"/><line x1="10.5" y1="15.5" x2="13.5" y2="15.5"/></svg>
+          </button>
           {titlebarConn && (
             <button className="app-titlebar-icon-btn" onClick={() => handleNewMetricsTab(titlebarConn.id)} title="Database Metrics">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
@@ -1004,6 +1057,13 @@ function MainApp() {
           )}
           <button className="app-titlebar-icon-btn" onClick={() => setShowKeyboardShortcuts(true)} title="Keyboard Shortcuts (Ctrl+?)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          </button>
+          <button
+            className={`app-titlebar-icon-btn ${resultsPanelVisible ? 'active' : ''}`}
+            onClick={handleToggleResultsPanel}
+            title={resultsPanelVisible ? 'Hide Results Panel' : 'Show Results Panel'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 14h18"/></svg>
           </button>
         </div>
       </div>
@@ -1043,7 +1103,7 @@ function MainApp() {
         />
         <div className="app-main">
           <TabBar
-            tabs={tabs}
+            tabs={visibleTabs}
             activeTabId={activeTabId}
             onSelectTab={setActiveTabId}
             onCloseTab={handleCloseTab}
@@ -1082,23 +1142,27 @@ function MainApp() {
                     queryError={activeTab.queryError}
                     onRunSqlFile={handleRunSqlFileForActiveTab}
                     theme={theme}
+                    fillHeight={!resultsPanelVisible}
                   />
-                  <ResultsGrid
-                    results={activeTab.results}
-                    isRunning={activeTab.isRunning}
-                    onExport={handleExport}
-                    onRunQuery={handleRunQuery}
-                    onRefresh={handleRefreshQuery}
-                    onSetQuery={handleSetQuery}
-                    onImport={handleImportForActiveTab}
-                    sourceTable={activeTab.tableFullName || null}
-                    pageSize={settings.pageSize}
-                    density={settings.density}
-                    connectionId={activeTab.connectionId}
-                    connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
-                    onSaveDeleteHistory={handleSaveDeleteHistory}
-                    ctrlSRef={gridCommitRef}
-                  />
+                  {resultsPanelVisible && (
+                    <ResultsGrid
+                      results={activeTab.results}
+                      isRunning={activeTab.isRunning}
+                      onExport={handleExport}
+                      onRunQuery={handleRunQuery}
+                      onRefresh={handleRefreshQuery}
+                      onSetQuery={handleSetQuery}
+                      onImport={handleImportForActiveTab}
+                      sourceTable={activeTab.tableFullName || null}
+                      pageSize={settings.pageSize}
+                      density={settings.density}
+                      showGridLines={settings.showGridLines}
+                      connectionId={activeTab.connectionId}
+                      connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
+                      onSaveDeleteHistory={handleSaveDeleteHistory}
+                      ctrlSRef={gridCommitRef}
+                    />
+                  )}
                 </>
               )}
             </div>

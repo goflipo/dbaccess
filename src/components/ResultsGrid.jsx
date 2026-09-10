@@ -73,7 +73,7 @@ const applyOperator = (val, op, filterVal) => {
   }
 }
 
-function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
+function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', showGridLines = true, connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
   const tableRef = useRef(null)
   const cellEditRef = useRef(null)
   const [filterText, setFilterText] = useState('')
@@ -999,7 +999,7 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
           />
         ) : (
         <div className="results-table-wrapper" ref={tableRef}>
-          <table className={`results-table density-${density}`}>
+          <table className={`results-table density-${density}${showGridLines ? '' : ' no-grid-lines'}`}>
             <thead>
               <tr>
                 <th className="row-num-header">#</th>

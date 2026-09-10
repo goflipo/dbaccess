@@ -29,7 +29,12 @@ if (app.isPackaged) require('bytenode');
 const licenseManager         = require(app.isPackaged ? './license.jsc'      : './license');
 const { registerIpcHandlers } = require(app.isPackaged ? './ipc-handlers.jsc' : './ipc-handlers');
 
+// The first window is kept as "mainWindow" (focused on second-instance launch);
+// all open windows — including ones opened via the "New Window" button — are
+// tracked in `windows` so each gets its own independently-closable BrowserWindow,
+// like Chrome's New Window.
 let mainWindow;
+const windows = new Set();
 
 // Cached license result from the main-process pre-check.
 // The renderer's first license:validate call returns this immediately so
@@ -39,7 +44,7 @@ let cachedLicenseResult = null;
 
 function createWindow() {
   const isMac = process.platform === 'darwin';
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1000,
@@ -62,23 +67,32 @@ function createWindow() {
     },
   });
 
+  windows.add(win);
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = win;
+  win.on('closed', () => {
+    windows.delete(win);
+    if (mainWindow === win) mainWindow = [...windows][0];
+  });
+
   // Show only after the page has painted — no white flash, no partial content.
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  win.once('ready-to-show', () => win.show());
 
   // Disable pinch/trackpad zoom and the Ctrl+=/-/0 zoom accelerators — a
   // native desktop app's UI doesn't rescale like a webpage.
-  mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
-  mainWindow.webContents.on('before-input-event', (event, input) => {
+  win.webContents.setVisualZoomLevelLimits(1, 1);
+  win.webContents.on('before-input-event', (event, input) => {
     if (input.control && ['+', '-', '=', '0'].includes(input.key)) {
       event.preventDefault();
     }
   });
 
   if (!app.isPackaged) {
-    mainWindow.loadURL('http://localhost:5173');
+    win.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  return win;
 }
 
 // ── License IPC handlers ───────────────────────────────────────────────────────
@@ -109,18 +123,24 @@ function registerLicenseHandlers() {
 }
 
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : [...windows][0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
   }
 });
 
 // ── Window-chrome IPC handlers ──────────────────────────────────────────────────
 function registerWindowHandlers() {
-  ipcMain.handle('window:set-titlebar-overlay', (_event, options = {}) => {
-    if (process.platform === 'win32' && mainWindow && typeof mainWindow.setTitleBarOverlay === 'function') {
-      mainWindow.setTitleBarOverlay(options);
+  ipcMain.handle('window:set-titlebar-overlay', (event, options = {}) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (process.platform === 'win32' && win && typeof win.setTitleBarOverlay === 'function') {
+      win.setTitleBarOverlay(options);
     }
+  });
+
+  ipcMain.handle('window:new', () => {
+    createWindow();
   });
 }
 

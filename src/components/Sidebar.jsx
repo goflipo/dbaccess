@@ -368,9 +368,46 @@ function Sidebar({
     )
   }
 
+  // With 2+ connections, a card rail on the left lets you switch which one
+  // the main panel is focused on, instead of stacking every connection's
+  // table tree in one long scrolling list.
+  const showConnRail = connections.length >= 2
+  const focusedConnId = showConnRail
+    ? (connections.some(c => c.id === activeConnectionId) ? activeConnectionId : connections[0]?.id)
+    : null
+
+  // Jumping to a connection via the rail should land straight on its table
+  // tree, without a separate click to expand it.
+  useEffect(() => {
+    if (!showConnRail || !focusedConnId) return
+    setExpandedConns(prev => prev.has(focusedConnId) ? prev : new Set(prev).add(focusedConnId))
+    if (!tables[focusedConnId] && !loadingTables[focusedConnId]) {
+      loadTablesForConnection(focusedConnId)
+    }
+  }, [showConnRail, focusedConnId])
+
   return (
     <div className="sidebar" data-tour="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
       <div className="sidebar-resize-handle" onMouseDown={handleResizeStart} title="Drag to resize sidebar" />
+      {showConnRail && (
+        <div className="sidebar-conn-rail">
+          {connections.map(conn => (
+            <button
+              key={conn.id}
+              className={`conn-rail-card ${conn.id === focusedConnId ? 'active' : ''}`}
+              onClick={() => onSelectConnection(conn.id)}
+              onContextMenu={(e) => handleContextMenu(e, conn.id, false)}
+              title={conn.name || conn.host}
+            >
+              <span className={`conn-rail-dot ${conn.connected ? 'connected' : ''}`}></span>
+              <span className="conn-rail-icon">{dbIcon(conn.type)}</span>
+              <span className="conn-rail-name">{conn.name || conn.host}</span>
+              <span className="conn-rail-db">{activeDbs[conn.id] ? `db : ${activeDbs[conn.id]}` : (conn.type === 'postgres' ? 'PostgreSQL' : conn.type === 'mysql' ? 'MySQL' : 'ClickHouse')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="sidebar-main">
       <div className="sidebar-mode-toggle">
         <button className={`mode-btn ${viewMode === 'items' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('items'))}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
@@ -471,10 +508,10 @@ function Sidebar({
             )}
 
             {/* Active connections */}
-            {connections.filter(c => 
-              (c.name || c.host).toLowerCase().includes(filterText.toLowerCase()) || 
+            {connections.filter(c =>
+              (c.name || c.host).toLowerCase().includes(filterText.toLowerCase()) ||
               (tables[c.id] || []).some(t => t.name.toLowerCase().includes(filterText.toLowerCase()))
-            ).map(conn => (
+            ).filter(c => !showConnRail || c.id === focusedConnId).map(conn => (
               <div key={conn.id} className={`sidebar-conn ${conn.id === activeConnectionId ? 'active' : ''}`} onContextMenu={(e) => handleContextMenu(e, conn.id, false)}>
                 {/* ── Connection header ── */}
                 <div className="sidebar-conn-header" onClick={() => toggleConn(conn.id)}>
@@ -748,7 +785,8 @@ function Sidebar({
           </>
         )}
       </div>
-      
+      </div>
+
       {contextMenu && (
         <div 
           ref={menuRef}

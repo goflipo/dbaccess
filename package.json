@@ -46,6 +46,7 @@
     "electron": "33.4.11"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/lang-sql": "^6.8.0",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@electron/rebuild": "^3.7.2",

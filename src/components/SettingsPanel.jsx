@@ -26,6 +26,12 @@ export default function SettingsPanel({ settings, onChangeSettings, safeMode, on
                 onChange={v => v !== theme && onToggleTheme()}
               />
             </SettingsRow>
+            <SettingsRow label="Accent color">
+              <AccentSwatches
+                value={settings.accentColor}
+                onChange={v => onChangeSettings({ accentColor: v })}
+              />
+            </SettingsRow>
             <SettingsRow label="Font size">
               <ToggleGroup
                 options={[
@@ -37,6 +43,17 @@ export default function SettingsPanel({ settings, onChangeSettings, safeMode, on
                 onChange={v => onChangeSettings({ fontSize: v })}
               />
             </SettingsRow>
+            <SettingsRow label="Text style">
+              <ToggleGroup
+                options={[
+                  { value: 'normal', label: 'Normal' },
+                  { value: 'bold', label: 'Bold' },
+                  { value: 'italic', label: 'Italic' },
+                ]}
+                value={settings.fontStyle}
+                onChange={v => onChangeSettings({ fontStyle: v })}
+              />
+            </SettingsRow>
             <SettingsRow label="Table density">
               <ToggleGroup
                 options={[
@@ -46,6 +63,16 @@ export default function SettingsPanel({ settings, onChangeSettings, safeMode, on
                 ]}
                 value={settings.density}
                 onChange={v => onChangeSettings({ density: v })}
+              />
+            </SettingsRow>
+            <SettingsRow label="Grid lines">
+              <ToggleGroup
+                options={[
+                  { value: true, label: 'On' },
+                  { value: false, label: 'Off' },
+                ]}
+                value={settings.showGridLines}
+                onChange={v => onChangeSettings({ showGridLines: v })}
               />
             </SettingsRow>
           </div>
@@ -118,6 +145,31 @@ function SettingsRow({ label, children }) {
     <div className="settings-row">
       <span className="settings-row-label">{label}</span>
       {children}
+    </div>
+  )
+}
+
+const ACCENT_COLORS = [
+  { value: 'blue', hex: '#4a90e2' },
+  { value: 'green', hex: '#2fae6c' },
+  { value: 'purple', hex: '#9a8cf0' },
+  { value: 'orange', hex: '#e8974b' },
+  { value: 'red', hex: '#e2574a' },
+  { value: 'teal', hex: '#2fa9a3' },
+]
+
+function AccentSwatches({ value, onChange }) {
+  return (
+    <div className="settings-accent-group">
+      {ACCENT_COLORS.map(c => (
+        <button
+          key={c.value}
+          className={`settings-accent-swatch${value === c.value ? ' active' : ''}`}
+          style={{ background: c.hex }}
+          title={c.value}
+          onClick={() => onChange(c.value)}
+        />
+      ))}
     </div>
   )
 }

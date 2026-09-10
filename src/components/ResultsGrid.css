@@ -143,7 +143,8 @@
 /* --- Table --- */
 .results-table-wrapper { flex: 1; overflow: auto; }
 .results-table {
-  width: 100%; border-collapse: collapse; font-size: 12px;
+  width: 100%; border-collapse: collapse; font-size: var(--app-font-size, 12px);
+  font-weight: var(--app-font-weight, 400); font-style: var(--app-font-style, normal);
   font-family: var(--font-mono);
 }
 .results-table thead { position: sticky; top: 0; z-index: 10; }
@@ -153,8 +154,8 @@
 .sortable-header:hover { background: var(--bg-active) !important; }
 .results-table th {
   padding: 7px 12px; background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-default);
-  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
   text-align: left; font-weight: 500; font-size: 11px;
   color: var(--text-secondary); white-space: nowrap;
   text-transform: none; letter-spacing: 0.1px;
@@ -195,15 +196,23 @@
 .results-table.density-compact td { padding: 2px 8px; }
 .results-table.density-comfortable th { padding: 10px 12px; }
 .results-table.density-comfortable td { padding: 8px 12px; }
+
+/* Hide row/column grid lines */
+.results-table.no-grid-lines th,
+.results-table.no-grid-lines td {
+  border-right-color: transparent;
+}
+.results-table.no-grid-lines td { border-bottom-color: transparent; }
+.results-table.no-grid-lines thead th { border-bottom-color: var(--border-default); }
 .row-num-header {
   width: 40px; text-align: center; color: var(--text-tertiary) !important;
   cursor: default !important;
 }
 .results-table td {
-  padding: 5px 12px; border-bottom: 1px solid var(--border-subtle);
-  border-right: 1px solid var(--border-subtle);
+  padding: 5px 12px; border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
   white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; color: var(--text-primary);
+  text-overflow: ellipsis; color: var(--text-secondary);
   position: relative;
 }
 .results-table tbody tr { cursor: pointer; transition: background 0.1s; user-select: none; }
@@ -230,8 +239,9 @@
 .cell-edit-input {
   width: 100%; padding: 2px 4px; background: var(--bg-primary);
   border: 1px solid var(--accent-primary); color: var(--text-primary);
-  font-family: var(--font-mono); font-size: 12px; outline: none;
-  border-radius: 2px; box-sizing: border-box;
+  font-family: var(--font-mono); font-size: var(--app-font-size, 12px);
+  font-weight: var(--app-font-weight, 400); font-style: var(--app-font-style, normal);
+  outline: none; border-radius: 2px; box-sizing: border-box;
 }
 .cell-edit-textarea {
   resize: vertical; min-height: 36px; line-height: 1.4;

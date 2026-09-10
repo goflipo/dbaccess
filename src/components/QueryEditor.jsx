@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { StateEffect, StateField } from '@codemirror/state'
-import { Decoration, EditorView } from '@codemirror/view'
+import { StateEffect, StateField, Prec } from '@codemirror/state'
+import { Decoration, EditorView, keymap } from '@codemirror/view'
+import { acceptCompletion } from '@codemirror/autocomplete'
 import {
   search, SearchQuery, setSearchQuery,
   findNext as cmFindNext, findPrevious as cmFindPrev,
@@ -218,7 +219,7 @@ function QueryEditor({
   value, onChange, onRun, onExport, onImport, isRunning,
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
-  theme: appTheme = 'dark',
+  theme: appTheme = 'dark', fillHeight = false,
 }) {
   const [editorHeight, setEditorHeight] = useState(220)
   const [showImportInput, setShowImportInput] = useState(false)
@@ -235,6 +236,7 @@ function QueryEditor({
   const [showParamsPanel, setShowParamsPanel] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
   const [errorDismissed, setErrorDismissed] = useState(false)
+  const [sqlSchema, setSqlSchema] = useState({})
   const editorViewRef = useRef(null)
   const findInputRef = useRef(null)
   const selTimerRef = useRef(null)
@@ -271,6 +273,24 @@ function QueryEditor({
   }, [queryError, errorDismissed])
 
   const suggestion = queryError ? findSuggestion(queryError.message) : null
+
+  // Load table/column names for the active connection so the SQL editor can
+  // suggest them (CodeMirror's sql() extension takes a flat {name: [cols]} map).
+  useEffect(() => {
+    if (!activeConnectionId) { setSqlSchema({}); return }
+    let cancelled = false
+    window.dbAccess.getSchemaFull(activeConnectionId).then((result) => {
+      if (cancelled || !result?.success) return
+      const map = {}
+      for (const t of result.data?.tables || []) {
+        const cols = (t.columns || []).map(c => c.name)
+        map[t.name] = cols
+        if (t.fullName && t.fullName !== t.name) map[t.fullName] = cols
+      }
+      setSqlSchema(map)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [activeConnectionId])
 
   // Auto-show params panel when params detected
   useEffect(() => {
@@ -448,16 +468,20 @@ function QueryEditor({
     document.addEventListener('mouseup', onUp)
   }
 
-  // CodeMirror extensions — static so they aren't recreated on every render
+  // CodeMirror extensions — rebuilt only when the schema (table/column list) changes
   const cmExtensions = useMemo(() => [
-    sql(),
+    sql({ schema: sqlSchema, upperCaseKeywords: true }),
     errorHighlightField,
     errorTheme,
     search(),
-  ], [])
+    Prec.highest(keymap.of([{ key: 'Tab', run: acceptCompletion }])),
+  ], [sqlSchema])
 
   return (
-    <div className="query-editor" data-tour="query-editor" onKeyDown={handleKeyDown} style={{ height: editorHeight, minHeight: 80 }}>
+    <div
+      className="query-editor" data-tour="query-editor" onKeyDown={handleKeyDown}
+      style={fillHeight ? { flex: 1, minHeight: 80 } : { height: editorHeight, minHeight: 80 }}
+    >
       <div className="editor-toolbar" onMouseDown={e => {
         if (!e.target.matches('input, textarea, select')) e.preventDefault()
       }}>
@@ -766,9 +790,9 @@ function QueryEditor({
           }}
         />
       </div>
-      <div className="editor-resize" onMouseDown={startResize}>
+      {!fillHeight && <div className="editor-resize" onMouseDown={startResize}>
         <div className="editor-resize-handle"></div>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -1,8 +1,59 @@
 .sidebar {
   width: var(--sidebar-width); min-width: var(--sidebar-width);
   background: var(--bg-secondary); border-right: 1px solid var(--border-subtle);
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: row; overflow: hidden;
   position: relative; flex-shrink: 0;
+  transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+}
+.sidebar-main {
+  display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; overflow: hidden;
+}
+
+/* Connection rail — shown when 2+ connections are active, for quick switching */
+.sidebar-conn-rail {
+  display: flex; flex-direction: column; gap: 6px;
+  width: 96px; flex-shrink: 0; padding: 8px 6px;
+  overflow-y: auto; background: var(--bg-primary);
+  border-right: 1px solid var(--border-subtle);
+}
+.conn-rail-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 6px 8px; border-radius: var(--radius-md);
+  background: var(--bg-elevated); border: 1px solid transparent;
+  color: var(--text-secondary); cursor: pointer;
+  transition: all var(--transition-fast); position: relative;
+}
+.conn-rail-card:hover { background: var(--bg-hover); color: var(--text-primary); }
+.conn-rail-card.active {
+  background: var(--accent-primary-bg); border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+.conn-rail-dot {
+  position: absolute; top: 6px; right: 6px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-tertiary);
+}
+.conn-rail-dot.connected { background: var(--accent-green); box-shadow: 0 0 5px var(--accent-green); }
+.conn-rail-icon { color: var(--text-tertiary); }
+.conn-rail-card.active .conn-rail-icon { color: var(--accent-primary); }
+.conn-rail-icon svg { width: 22px; height: 22px; }
+.conn-rail-name {
+  font-size: 11px; font-weight: 600; text-align: center; width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.conn-rail-db {
+  font-size: 9px; color: var(--text-tertiary); text-align: center; width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@keyframes sidebarContentFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sidebar-mode-toggle, .sidebar-header, .sidebar-content {
+  animation: sidebarContentFadeIn 0.15s ease 0.08s both;
+}
+.sidebar-collapsed .sidebar-toggle, .sidebar-collapsed .sidebar-action-icon {
+  animation: sidebarContentFadeIn 0.15s ease 0.1s both;
 }
 
 .sidebar-resize-handle {
@@ -25,7 +76,7 @@
 .sidebar-mode-toggle {
   display: flex; padding: 6px 8px; gap: 2px; flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 .mode-btn {
   flex: 1; padding: 5px 8px; border-radius: var(--radius-sm);

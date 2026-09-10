@@ -49,6 +49,10 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+.app-titlebar-icon-btn.active {
+  background: var(--accent-primary-bg);
+  color: var(--accent-primary);
+}
 .app-body { display: flex; flex: 1; overflow: hidden; }
 .app-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .app-workspace {
