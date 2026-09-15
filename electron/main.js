@@ -27,6 +27,7 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 if (app.isPackaged) require('bytenode');
 
 const licenseManager         = require(app.isPackaged ? './license.jsc'      : './license');
+const aiManager               = require(app.isPackaged ? './ai.jsc'          : './ai');
 const { registerIpcHandlers } = require(app.isPackaged ? './ipc-handlers.jsc' : './ipc-handlers');
 
 // The first window is kept as "mainWindow" (focused on second-instance launch);
@@ -122,6 +123,36 @@ function registerLicenseHandlers() {
   });
 }
 
+// ── AI assistant IPC handlers ───────────────────────────────────────────────────
+// The API key is saved/read only in the main process (encrypted at rest via
+// safeStorage) and never sent back to the renderer — only a save/status/clear
+// surface is exposed, plus the actual generate call.
+function registerAiHandlers() {
+  ipcMain.handle('ai:list-providers', () => {
+    return aiManager.listProviders();
+  });
+
+  ipcMain.handle('ai:save-config', (_event, provider, apiKey, options) => {
+    return aiManager.saveAiConfig(provider, apiKey, options);
+  });
+
+  ipcMain.handle('ai:get-config-status', () => {
+    return aiManager.getAiConfigStatus();
+  });
+
+  ipcMain.handle('ai:clear-config', () => {
+    return aiManager.clearAiConfig();
+  });
+
+  ipcMain.handle('ai:generate-sql', async (_event, params) => {
+    return await aiManager.generateSql(params || {});
+  });
+
+  ipcMain.handle('ai:cancel-generate', (_event, requestId) => {
+    return aiManager.cancelGenerate(requestId);
+  });
+}
+
 app.on('second-instance', () => {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : [...windows][0];
   if (win) {
@@ -147,6 +178,7 @@ function registerWindowHandlers() {
 app.whenReady().then(async () => {
   registerIpcHandlers(ipcMain, dialog);
   registerLicenseHandlers();
+  registerAiHandlers();
   registerWindowHandlers();
 
   // Validate license BEFORE creating the window so the window appears in

@@ -13,6 +13,7 @@ import StatusBar from './components/StatusBar'
 import CreateTableModal from './components/CreateTableModal'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import OpenAnythingModal from './components/OpenAnythingModal'
+import CommandPalette from './components/CommandPalette'
 import QueryFavoritesModal from './components/QueryFavoritesModal'
 import TableStructurePanel from './components/TableStructurePanel'
 import SettingsPanel from './components/SettingsPanel'
@@ -63,6 +64,7 @@ function MainApp() {
   const [statusMessage, setStatusMessage] = useState({ text: 'Ready', type: 'info' })
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [showOpenAnything, setShowOpenAnything] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showFavoritesModal, setShowFavoritesModal] = useState(false)
   const [showTableStructure, setShowTableStructure] = useState(null) // { connId, tableName }
   const [allTablesCatalog, setAllTablesCatalog] = useState([])
@@ -1006,6 +1008,8 @@ function MainApp() {
         })
       } else if (isMod && e.key === 'k') {
         e.preventDefault(); handleOpenAnythingTrigger()
+      } else if (isMod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault(); setShowCommandPalette(true)
       } else if (isMod && e.key === 'r') {
         e.preventDefault(); handleRefreshQuery()
       } else if (isMod && (e.key === '?' || (e.shiftKey && e.key === 'K'))) {
@@ -1027,6 +1031,22 @@ function MainApp() {
       activeTab?.tableFullName,
     ].filter(Boolean).join(' : '),
   ].filter(Boolean).join('  |  ') : ''
+
+  // --- Command palette (Ctrl+Shift+P) ---
+  const commandPaletteCommands = [
+    { id: 'new-connection', label: 'New Connection', group: 'Connection', action: handleOpenNewConnectionModal },
+    { id: 'new-tab', label: 'New Query Tab', group: 'Tabs', shortcut: 'Ctrl+T', action: () => handleNewTab() },
+    { id: 'new-window', label: 'New Window', group: 'Window', shortcut: 'Ctrl+Shift+N', action: () => window.dbAccess.newWindow() },
+    { id: 'toggle-sidebar', label: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar', group: 'View', shortcut: 'Ctrl+\\', action: handleToggleSidebar },
+    { id: 'toggle-results', label: resultsPanelVisible ? 'Hide Results Panel' : 'Show Results Panel', group: 'View', action: handleToggleResultsPanel },
+    { id: 'toggle-theme', label: theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme', group: 'View', action: () => setTheme(t => t === 'dark' ? 'light' : 'dark') },
+    { id: 'db-compare', label: 'DB Compare & Sync', group: 'Tools', action: handleNewCompareTab },
+    { id: 'broadcast', label: 'Multi-DB Broadcast', group: 'Tools', action: handleNewBroadcastTab },
+    { id: 'toggle-safe-mode', label: safeMode ? 'Turn Off Safe Mode' : 'Turn On Safe Mode', group: 'Query', action: () => setSafeMode(v => { const next = !v; localStorage.setItem('dbaccess:safeMode', next); return next }) },
+    { id: 'open-settings', label: 'Open Settings', group: 'Preferences', action: () => setShowSettings(true) },
+    { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', group: 'Help', shortcut: 'Ctrl+?', action: () => setShowKeyboardShortcuts(true) },
+    { id: 'restart-tour', label: 'Restart Tour', group: 'Help', action: () => setShowTour(true) },
+  ]
 
   return (
     <div className="app">
@@ -1139,6 +1159,7 @@ function MainApp() {
                     isRunning={activeTab.isRunning}
                     activeConnectionId={activeTab.connectionId}
                     connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
+                    dbType={connections.find(c => c.id === activeTab.connectionId)?.type}
                     queryError={activeTab.queryError}
                     onRunSqlFile={handleRunSqlFileForActiveTab}
                     theme={theme}
@@ -1267,6 +1288,12 @@ function MainApp() {
           items={allTablesCatalog}
           onSelect={handleOpenAnythingSelect}
           onClose={() => setShowOpenAnything(false)}
+        />
+      )}
+      {showCommandPalette && (
+        <CommandPalette
+          commands={commandPaletteCommands}
+          onClose={() => setShowCommandPalette(false)}
         />
       )}
       {showFavoritesModal && (

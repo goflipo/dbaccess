@@ -219,12 +219,19 @@ function QueryEditor({
   value, onChange, onRun, onExport, onImport, isRunning,
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
-  theme: appTheme = 'dark', fillHeight = false,
+  theme: appTheme = 'dark', fillHeight = false, dbType,
 }) {
   const [editorHeight, setEditorHeight] = useState(220)
   const [showImportInput, setShowImportInput] = useState(false)
   const [importTable, setImportTable] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
+  const [showAiPanel, setShowAiPanel] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
+  const [aiLogs, setAiLogs] = useState([])
+  const [showAiLogs, setShowAiLogs] = useState(false)
+  const aiRequestIdRef = useRef(null)
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -396,6 +403,43 @@ function QueryEditor({
     onChange(minified)
   }
 
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim() || aiLoading) return
+    const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    aiRequestIdRef.current = requestId
+    setAiLoading(true); setAiError(''); setAiLogs([])
+    try {
+      const result = await window.dbAccess.ai.generateSql({
+        prompt: aiPrompt.trim(),
+        schema: sqlSchema,
+        dialect: dbType || 'sql',
+        requestId,
+      })
+      setAiLogs(result.logs || [])
+      if (result.success) {
+        onChange(result.sql)
+        setAiPrompt('')
+        setShowAiPanel(false)
+        onRun(result.sql)
+      } else if (!result.cancelled) {
+        setAiError(result.error || 'Failed to generate SQL')
+        setShowAiLogs(true)
+      }
+    } catch (err) {
+      setAiError(err.message || 'Failed to generate SQL')
+      setShowAiLogs(true)
+    } finally {
+      setAiLoading(false)
+      aiRequestIdRef.current = null
+    }
+  }
+
+  const handleAiStop = () => {
+    if (aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current)
+    setAiLoading(false)
+    setAiError('Cancelled')
+  }
+
   const toggleComment = () => {
     if (!editorViewRef.current) return
     const state = editorViewRef.current.state
@@ -521,6 +565,19 @@ function QueryEditor({
           Explain
         </button>
 
+        {/* Ask AI */}
+        <button
+          className={`toolbar-btn-sm ai-ask-btn ${showAiPanel ? 'active' : ''}`}
+          onClick={() => { setShowAiPanel(v => !v); setAiError('') }}
+          title="Ask AI to write a query from a description"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 3l1.9 4.8L19 9.5l-4.8 1.7L12 16l-1.9-4.8L5 9.5l4.8-1.7L12 3z"/>
+            <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/>
+          </svg>
+          Ask AI
+        </button>
+
         <div className="toolbar-sep"></div>
 
         {/* Transaction */}
@@ -618,6 +675,55 @@ function QueryEditor({
           </>
         )}
       </div>
+
+      {/* AI Panel */}
+      {showAiPanel && (
+        <div className="ai-panel">
+          <div className="ai-panel-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ai-panel-icon">
+              <path d="M12 3l1.9 4.8L19 9.5l-4.8 1.7L12 16l-1.9-4.8L5 9.5l4.8-1.7L12 3z"/>
+            </svg>
+            <input
+              type="text"
+              className="ai-panel-input"
+              placeholder="Describe the query you want, e.g. 'top 10 customers by order total this month'"
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleAiGenerate()
+                if (e.key === 'Escape') { if (aiLoading && aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current); setShowAiPanel(false) }
+              }}
+              autoFocus
+              disabled={aiLoading}
+            />
+            {aiLoading ? (
+              <button className="ai-panel-generate ai-panel-stop" onClick={handleAiStop} title="Stop generating">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+                Stop
+              </button>
+            ) : (
+              <button className="ai-panel-generate" onClick={handleAiGenerate} disabled={!aiPrompt.trim()}>
+                Generate
+              </button>
+            )}
+            <button className="ai-panel-close" onClick={() => { if (aiLoading && aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current); setShowAiPanel(false) }}>✕</button>
+          </div>
+          {aiError && <div className="ai-panel-error">{aiError}</div>}
+          {aiLogs.length > 0 && (
+            <div className="ai-panel-logs-wrap">
+              <button className="ai-panel-logs-toggle" onClick={() => setShowAiLogs(v => !v)}>
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ transform: showAiLogs ? 'rotate(90deg)' : 'none' }}><path d="M9 18l6-6-6-6"/></svg>
+                {showAiLogs ? 'Hide' : 'Show'} details ({aiLogs.length})
+              </button>
+              {showAiLogs && (
+                <div className="ai-panel-logs">
+                  {aiLogs.map((line, i) => <div key={i} className="ai-panel-log-line">{line}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Query Parameters Panel */}
       {showParamsPanel && hasParams && (

@@ -98,6 +98,8 @@ export default function SettingsPanel({ settings, onChangeSettings, safeMode, on
             </SettingsRow>
           </div>
 
+          <AiAssistantSettings />
+
           <div className="settings-section">
             <div className="settings-section-title">Support</div>
             <div className="settings-support-card">
@@ -170,6 +172,136 @@ function AccentSwatches({ value, onChange }) {
           onClick={() => onChange(c.value)}
         />
       ))}
+    </div>
+  )
+}
+
+const FALLBACK_PROVIDERS = [
+  { id: 'claude', label: 'Claude (Anthropic)', needsBaseUrl: false, defaultModel: 'claude-3-5-sonnet-20241022', endpoint: 'api.anthropic.com' },
+  { id: 'openai', label: 'OpenAI', needsBaseUrl: false, defaultModel: 'gpt-4o-mini', endpoint: 'api.openai.com' },
+  { id: 'gemini', label: 'Google Gemini', needsBaseUrl: false, defaultModel: 'gemini-1.5-flash', endpoint: 'generativelanguage.googleapis.com' },
+  { id: 'groq', label: 'Groq', needsBaseUrl: false, defaultModel: 'llama-3.3-70b-versatile', endpoint: 'api.groq.com' },
+  { id: 'mistral', label: 'Mistral', needsBaseUrl: false, defaultModel: 'mistral-large-latest', endpoint: 'api.mistral.ai' },
+  { id: 'deepseek', label: 'DeepSeek', needsBaseUrl: false, defaultModel: 'deepseek-chat', endpoint: 'api.deepseek.com' },
+  { id: 'xai', label: 'xAI (Grok)', needsBaseUrl: false, defaultModel: 'grok-2-latest', endpoint: 'api.x.ai' },
+  { id: 'openrouter', label: 'OpenRouter', needsBaseUrl: false, defaultModel: 'openai/gpt-4o-mini', endpoint: 'openrouter.ai' },
+  { id: 'perplexity', label: 'Perplexity', needsBaseUrl: false, defaultModel: 'llama-3.1-sonar-large-128k-online', endpoint: 'api.perplexity.ai' },
+  { id: 'nvidia', label: 'NVIDIA NIM', needsBaseUrl: false, defaultModel: '', endpoint: 'integrate.api.nvidia.com' },
+  { id: 'custom', label: 'Custom (OpenAI-compatible)', needsBaseUrl: true, defaultModel: '', endpoint: null },
+]
+
+function AiAssistantSettings() {
+  const [providers, setProviders] = React.useState(FALLBACK_PROVIDERS)
+  const [status, setStatus] = React.useState(null) // { provider, hasKey, baseUrl, model }
+  const [provider, setProvider] = React.useState('claude')
+  const [apiKey, setApiKey] = React.useState('')
+  const [baseUrl, setBaseUrl] = React.useState('')
+  const [model, setModel] = React.useState('')
+  const [saving, setSaving] = React.useState(false)
+  const [message, setMessage] = React.useState('')
+
+  React.useEffect(() => {
+    window.dbAccess?.ai?.listProviders().then(list => { if (list?.length) setProviders(list) })
+    window.dbAccess?.ai?.getStatus().then(s => {
+      if (!s) return
+      setStatus(s)
+      if (s.provider && s.provider !== 'none') {
+        setProvider(s.provider)
+        setBaseUrl(s.baseUrl || '')
+        setModel(s.model || '')
+      }
+    })
+  }, [])
+
+  const current = providers.find(p => p.id === provider) || providers[0]
+
+  const handleSave = async () => {
+    if (!apiKey.trim()) return
+    if (current.needsBaseUrl && !baseUrl.trim()) {
+      setMessage('Base URL is required for a custom provider')
+      return
+    }
+    if (!current.defaultModel && !model.trim()) {
+      setMessage('Model is required for this provider')
+      return
+    }
+    setSaving(true); setMessage('')
+    const res = await window.dbAccess.ai.saveConfig(provider, apiKey.trim(), { baseUrl: baseUrl.trim(), model: model.trim() })
+    setSaving(false)
+    if (res.success) {
+      setApiKey('')
+      setStatus({ provider, hasKey: true, baseUrl: baseUrl.trim(), model: model.trim() })
+      setMessage('Key saved on this device')
+    } else {
+      setMessage(res.error || 'Failed to save key')
+    }
+  }
+
+  const handleClear = async () => {
+    await window.dbAccess.ai.clearConfig()
+    setStatus({ provider: 'none', hasKey: false, baseUrl: '', model: '' })
+    setMessage('Key removed')
+  }
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-title">AI Assistant</div>
+      <SettingsRow label="Provider">
+        <select
+          className="settings-ai-select"
+          value={provider}
+          onChange={e => { setProvider(e.target.value); setMessage('') }}
+        >
+          {providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </SettingsRow>
+      {current.endpoint && (
+        <div className="settings-ai-endpoint">
+          Your key will be sent to <strong>{current.endpoint}</strong> — make sure it's a key issued by that service (e.g. a key from another provider hosting the same model, like NVIDIA NIM, won't work here — use "Custom" for that instead).
+        </div>
+      )}
+      {current.needsBaseUrl && (
+        <div className="settings-ai-key-row">
+          <input
+            type="text"
+            className="settings-ai-key-input"
+            placeholder="Base URL, e.g. https://api.example.com/v1"
+            value={baseUrl}
+            onChange={e => setBaseUrl(e.target.value)}
+          />
+        </div>
+      )}
+      <div className="settings-ai-key-row">
+        <input
+          type="text"
+          className="settings-ai-key-input"
+          placeholder={current.defaultModel ? `Model (optional) — default: ${current.defaultModel}` : 'Model (required) — e.g. deepseek-ai/deepseek-v4-flash-0731'}
+          value={model}
+          onChange={e => setModel(e.target.value)}
+        />
+      </div>
+      <div className="settings-ai-key-row">
+        <input
+          type="password"
+          className="settings-ai-key-input"
+          placeholder={status?.hasKey && status.provider === provider ? `${current.label} key saved — paste a new one to replace it` : `Paste your ${current.label} API key…`}
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
+        />
+        <button className="settings-ai-save-btn" onClick={handleSave} disabled={saving || !apiKey.trim()}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {status?.hasKey && (
+          <button className="settings-ai-clear-btn" onClick={handleClear} title="Remove saved key">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          </button>
+        )}
+      </div>
+      {message && <div className="settings-ai-message">{message}</div>}
+      <div className="settings-ai-hint">
+        Your key is encrypted and stored only on this device. It's used directly by the app to call {current.label} when you use "Ask AI" in the query editor — never sent anywhere else.
+      </div>
     </div>
   )
 }

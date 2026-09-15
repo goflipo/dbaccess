@@ -74,4 +74,14 @@ contextBridge.exposeInMainWorld('dbAccess', {
     checkVersion: ()       => ipcRenderer.invoke('license:check-version'),
     clear:        ()       => ipcRenderer.invoke('license:clear'),
   },
+
+  // --- AI assistant (natural-language-to-SQL) ---
+  ai: {
+    listProviders: ()                        => ipcRenderer.invoke('ai:list-providers'),
+    saveConfig:    (provider, apiKey, options) => ipcRenderer.invoke('ai:save-config', provider, apiKey, options),
+    getStatus:     ()                        => ipcRenderer.invoke('ai:get-config-status'),
+    clearConfig:   ()                        => ipcRenderer.invoke('ai:clear-config'),
+    generateSql:   (params)                  => ipcRenderer.invoke('ai:generate-sql', params),
+    cancelGenerate: (requestId)               => ipcRenderer.invoke('ai:cancel-generate', requestId),
+  },
 });

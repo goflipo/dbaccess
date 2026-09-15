@@ -18,7 +18,7 @@ const electronDir = path.join(__dirname, '..', 'electron');
 
 // Files to compile — paths relative to electron/.
 // ipc-handlers internally requires './database', which stays as JS.
-const targets = ['license', 'ipc-handlers'];
+const targets = ['license', 'ai', 'ipc-handlers'];
 
 async function main() {
   let failed = false;

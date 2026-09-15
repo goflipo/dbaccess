@@ -355,6 +355,27 @@ function Sidebar({
     return new Date(ts).toLocaleDateString()
   }
 
+  // With 2+ connections, a card rail on the left lets you switch which one
+  // the main panel is focused on, instead of stacking every connection's
+  // table tree in one long scrolling list.
+  const showConnRail = connections.length >= 2
+  const focusedConnId = showConnRail
+    ? (connections.some(c => c.id === activeConnectionId) ? activeConnectionId : connections[0]?.id)
+    : null
+
+  // Jumping to a connection via the rail should land straight on its table
+  // tree, without a separate click to expand it.
+  // NOTE: this hook must run on every render (kept above the `collapsed`
+  // early-return below) — conditionally skipping it violates the Rules of
+  // Hooks and crashes the whole sidebar when the collapsed state toggles.
+  useEffect(() => {
+    if (collapsed || !showConnRail || !focusedConnId) return
+    setExpandedConns(prev => prev.has(focusedConnId) ? prev : new Set(prev).add(focusedConnId))
+    if (!tables[focusedConnId] && !loadingTables[focusedConnId]) {
+      loadTablesForConnection(focusedConnId)
+    }
+  }, [collapsed, showConnRail, focusedConnId])
+
   if (collapsed) {
     return (
       <div className="sidebar sidebar-collapsed">
@@ -367,24 +388,6 @@ function Sidebar({
       </div>
     )
   }
-
-  // With 2+ connections, a card rail on the left lets you switch which one
-  // the main panel is focused on, instead of stacking every connection's
-  // table tree in one long scrolling list.
-  const showConnRail = connections.length >= 2
-  const focusedConnId = showConnRail
-    ? (connections.some(c => c.id === activeConnectionId) ? activeConnectionId : connections[0]?.id)
-    : null
-
-  // Jumping to a connection via the rail should land straight on its table
-  // tree, without a separate click to expand it.
-  useEffect(() => {
-    if (!showConnRail || !focusedConnId) return
-    setExpandedConns(prev => prev.has(focusedConnId) ? prev : new Set(prev).add(focusedConnId))
-    if (!tables[focusedConnId] && !loadingTables[focusedConnId]) {
-      loadTablesForConnection(focusedConnId)
-    }
-  }, [showConnRail, focusedConnId])
 
   return (
     <div className="sidebar" data-tour="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
