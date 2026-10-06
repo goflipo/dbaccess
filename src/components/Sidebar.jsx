@@ -79,7 +79,9 @@ function Sidebar({
   const [expandedConns, setExpandedConns] = useState(new Set())
   const [contextMenu, setContextMenu] = useState(null)
   const [renamingConn, setRenamingConn] = useState(null)
-  const [filterText, setFilterText] = useState('')
+  // Table filter is remembered per connection/database, so switching
+  // databases doesn't carry the previous one's search over.
+  const [filterTexts, setFilterTexts] = useState({})
   const [viewMode, setViewMode] = useState('items')
   const [historySearch, setHistorySearch] = useState('')
   const [favorites, setFavorites] = useState([])
@@ -362,6 +364,9 @@ function Sidebar({
   const focusedConnId = showConnRail
     ? (connections.some(c => c.id === activeConnectionId) ? activeConnectionId : connections[0]?.id)
     : null
+  const filterKey = focusedConnId || connections[0]?.id || '__none__'
+  const filterText = filterTexts[filterKey] || ''
+  const setFilterText = (v) => setFilterTexts(prev => ({ ...prev, [filterKey]: v }))
 
   // Jumping to a connection via the rail should land straight on its table
   // tree, without a separate click to expand it.
@@ -453,7 +458,7 @@ function Sidebar({
             value={viewMode === 'items' ? filterText : viewMode === 'queries' ? favoritesSearch : historySearch}
             onChange={e => viewMode === 'items' ? setFilterText(e.target.value) : viewMode === 'queries' ? setFavoritesSearch(e.target.value) : setHistorySearch(e.target.value)}
           />
-          {(filterText || historySearch || favoritesSearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterText(''); setHistorySearch(''); setFavoritesSearch('') }}>✕</button>}
+          {(filterText || historySearch || favoritesSearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterTexts(prev => ({ ...prev, [filterKey]: '' })); setHistorySearch(''); setFavoritesSearch('') }}>✕</button>}
         </div>
 
         {viewMode === 'queries' ? (

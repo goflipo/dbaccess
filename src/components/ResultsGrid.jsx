@@ -73,7 +73,7 @@ const applyOperator = (val, op, filterVal) => {
   }
 }
 
-function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', showGridLines = true, connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
+function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', showGridLines = true, connectionId, connectionName, onSaveDeleteHistory, ctrlSRef, dbTotalRowCount = null, dbPage = 0, onDbPageChange }) {
   const tableRef = useRef(null)
   const cellEditRef = useRef(null)
   const [filterText, setFilterText] = useState('')
@@ -260,7 +260,19 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
             <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
           </svg>
           <div>
-            <div className="error-title">Query Error</div>
+            <div className="error-title-row">
+              <div className="error-title">Query Error</div>
+              <button
+                className="error-copy-btn"
+                onClick={() => { navigator.clipboard.writeText(results.error).catch(() => {}); showToast('Error message copied', 'success') }}
+                title="Copy error message"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+                Copy
+              </button>
+            </div>
             <div className="error-message">{results.error}</div>
           </div>
         </div>
@@ -334,6 +346,19 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
   const filteredRows = sortedRows
   const totalPages = Math.ceil(filteredRows.length / pageSize)
   const pagedRows = filteredRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+
+  // --- Server-side (DB) pagination for table-browse tabs ---
+  // A tab opened by clicking a table in the sidebar always fetches exactly
+  // one page (LIMIT pageSize) at a time from the database, so the client-side
+  // pagination above is naturally a no-op for it (filteredRows.length <=
+  // pageSize). This is the real "browse the whole table" pagination instead —
+  // Prev/Next/First/Last re-query the database at a different OFFSET.
+  const isDbPaginated = !!sourceTable && typeof onDbPageChange === 'function'
+  const dbTotalPages = dbTotalRowCount != null ? Math.max(1, Math.ceil(dbTotalRowCount / pageSize)) : null
+  const dbHasPrev = dbPage > 0
+  // Until the COUNT(*) comes back, guess there's a next page whenever this
+  // page came back full — the common case while the total is still loading.
+  const dbHasNext = dbTotalPages != null ? dbPage < dbTotalPages - 1 : rows.length >= pageSize
 
   // --- Filter CRUD ---
   const addFilter = () => {
@@ -529,7 +554,10 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
     const multiRows = selectedRows.size > 1
       ? [...selectedRows].sort((a, b) => a - b).map(idx => rows[idx]).filter(Boolean)
       : [contextMenu.row]
-    const keys = Object.keys(multiRows[0])
+    // __db_ctid is our own internal row-identity helper, not a real table
+    // column — exclude it from every copy format, not just INSERT, so it
+    // never leaks out (and can't round-trip back in via Paste-as-INSERT).
+    const keys = Object.keys(multiRows[0]).filter(k => k !== '__db_ctid')
 
     const escapeCsv = (val) => {
       const str = formatCellValue(val)
@@ -565,10 +593,9 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
         break
       case 'insert': {
         const tableName = sourceTable || 'table_name'
-        const insertKeys = keys.filter(k => k !== '__db_ctid')
-        const cols = insertKeys.map(k => `"${k}"`).join(', ')
+        const cols = keys.map(k => `"${k}"`).join(', ')
         result = multiRows.map(row => {
-          const sqlVals = insertKeys.map(k => sqlLiteral(row[k])).join(', ')
+          const sqlVals = keys.map(k => sqlLiteral(row[k])).join(', ')
           return `INSERT INTO ${tableName} (${cols}) VALUES (${sqlVals});`
         }).join('\n')
         break
@@ -771,21 +798,21 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
       try {
         const obj = JSON.parse(text)
         const entries = Array.isArray(obj) ? obj : [obj]
-        const cols = Object.keys(entries[0]).map(c => `"${c}"`).join(', ')
+        // Defensively strip __db_ctid in case the clipboard JSON came from a
+        // "Copy JSON" of our own grid (or any other source using that key) —
+        // it's never a real column and must not be scaffolded into an INSERT.
+        const keys = Object.keys(entries[0]).filter(k => k !== '__db_ctid')
+        const cols = keys.map(c => `"${c}"`).join(', ')
         const valRows = entries.map(row =>
-          '(' + Object.values(row).map(v => {
-            if (v === null || v === undefined) return 'NULL'
-            if (typeof v === 'number') return v
-            return `'${String(v).replace(/'/g, "''")}'`
-          }).join(', ') + ')'
+          '(' + keys.map(k => sqlLiteral(row[k])).join(', ') + ')'
         ).join(',\n')
         onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES\n${valRows};`)
         showToast('Pasted from clipboard as INSERT', 'success')
         setContextMenu(null); setActiveSubmenu(null)
         return
       } catch (_) {/* not JSON */}
-      const vals = text.split('\t').map(v => `'${v.replace(/'/g, "''")}'`).join(', ')
-      const cols = columns.map(c => `"${c.name}"`).join(', ')
+      const vals = text.split('\t').map(v => sqlLiteral(v)).join(', ')
+      const cols = columns.filter(c => c.name !== '__db_ctid').map(c => `"${c.name}"`).join(', ')
       onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES (${vals});`)
       showToast('Pasted clipboard as row values', 'success')
     } catch (err) {
@@ -1164,18 +1191,45 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
           </div>
           {viewMode === 'data' && (
             <div className="results-footer-right">
-              <span className="results-footer-count">{filteredRows.length.toLocaleString()} row{filteredRows.length !== 1 ? 's' : ''}</span>
-              {totalPages > 1 && (
-                <div className="results-pagination">
-                  <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
-                  <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
-                  <span className="pagination-info">
-                    Page {currentPage + 1} of {totalPages}
-                    <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
+              {isDbPaginated ? (
+                <>
+                  <span className="results-footer-count">
+                    {(filterText || advancedFilters.length > 0) && filteredRows.length !== rows.length
+                      ? `${filteredRows.length.toLocaleString()} matching (of ${rows.length.toLocaleString()} on page)`
+                      : `${rows.length.toLocaleString()} row${rows.length !== 1 ? 's' : ''}`}
+                    {dbTotalRowCount != null && (
+                      <span className="results-footer-total"> · {dbTotalRowCount.toLocaleString()} total</span>
+                    )}
                   </span>
-                  <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
-                  <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
-                </div>
+                  <div className="results-pagination">
+                    <button className="pagination-btn" disabled={!dbHasPrev || isRunning} onClick={() => onDbPageChange(0)} title="First page">⟪</button>
+                    <button className="pagination-btn" disabled={!dbHasPrev || isRunning} onClick={() => onDbPageChange(dbPage - 1)}>← Prev</button>
+                    <span className="pagination-info">
+                      Page {dbPage + 1}{dbTotalPages != null ? ` of ${dbTotalPages}` : ''}
+                      <span className="pagination-range">
+                        ({rows.length === 0 ? 0 : (dbPage * pageSize + 1).toLocaleString()}–{(dbPage * pageSize + rows.length).toLocaleString()})
+                      </span>
+                    </span>
+                    <button className="pagination-btn" disabled={!dbHasNext || isRunning} onClick={() => onDbPageChange(dbPage + 1)}>Next →</button>
+                    <button className="pagination-btn" disabled={dbTotalPages == null || !dbHasNext || isRunning} onClick={() => onDbPageChange(dbTotalPages - 1)} title="Last page">⟫</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="results-footer-count">{filteredRows.length.toLocaleString()} row{filteredRows.length !== 1 ? 's' : ''}</span>
+                  {totalPages > 1 && (
+                    <div className="results-pagination">
+                      <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
+                      <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
+                      <span className="pagination-info">
+                        Page {currentPage + 1} of {totalPages}
+                        <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
+                      </span>
+                      <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
+                      <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1264,13 +1318,12 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
           <button onClick={() => {
             if (!sourceTable) { showToast('Open a direct table view to duplicate a row.', 'error'); setContextMenu(null); setActiveSubmenu(null); return }
             const row = contextMenu.row
-            const cols = columns.map(c => `"${c.name}"`).join(', ')
-            const vals = columns.map(col => {
-              const v = row[col.name]
-              if (v === null || v === undefined) return 'NULL'
-              if (typeof v === 'number') return v
-              return `'${String(v).replace(/'/g, "''")}'`
-            }).join(', ')
+            // __db_ctid is our own internal row-identity helper (added via
+            // `SELECT ..., ctid AS __db_ctid`), not a real table column — it
+            // must never be inserted as data.
+            const insertCols = columns.filter(c => c.name !== '__db_ctid')
+            const cols = insertCols.map(c => `"${c.name}"`).join(', ')
+            const vals = insertCols.map(col => sqlLiteral(row[col.name])).join(', ')
             onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES (${vals});`)
             setContextMenu(null); setActiveSubmenu(null)
           }}>

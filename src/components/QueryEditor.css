@@ -395,7 +395,14 @@
   transition: all 0.1s;
 }
 .ai-panel-close:hover { background: var(--bg-hover); color: var(--text-primary); }
-.ai-panel-error { font-size: 11px; color: #f87171; padding-left: 20px; }
+.ai-panel-error-row { display: flex; align-items: center; gap: 8px; padding-left: 20px; }
+.ai-panel-error { font-size: 11px; color: #f87171; flex: 1; min-width: 0; }
+.ai-panel-error-copy {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 18px; height: 18px; border-radius: 3px; color: var(--text-tertiary);
+  background: none; transition: all var(--transition-fast);
+}
+.ai-panel-error-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
 .ai-panel-logs-wrap { padding-left: 20px; margin-top: 4px; }
 .ai-panel-logs-toggle {
   display: flex; align-items: center; gap: 5px;

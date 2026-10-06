@@ -40,6 +40,16 @@
   color: var(--accent-red); animation: scaleIn 0.2s ease;
 }
 .error-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.error-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.error-title-row .error-title { margin-bottom: 0; }
+.error-copy-btn {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 500; color: var(--accent-red);
+  background: transparent; border: 1px solid color-mix(in srgb, var(--accent-red) 40%, transparent);
+  cursor: pointer; transition: all var(--transition-fast);
+}
+.error-copy-btn:hover { background: color-mix(in srgb, var(--accent-red) 15%, transparent); }
 .error-message { font-size: 12px; opacity: 0.85; font-family: var(--font-mono); line-height: 1.5; }
 .success-content {
   display: flex; align-items: center; gap: 10px;
@@ -283,6 +293,7 @@
 .results-view-tab.active { background: var(--bg-active); color: var(--text-primary); }
 .results-footer-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .results-footer-count { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+.results-footer-total { color: var(--text-secondary); font-weight: 500; }
 
 /* --- Pagination --- */
 .results-pagination {

@@ -232,6 +232,8 @@ function QueryEditor({
   const [aiLogs, setAiLogs] = useState([])
   const [showAiLogs, setShowAiLogs] = useState(false)
   const aiRequestIdRef = useRef(null)
+  const [errorCopied, setErrorCopied] = useState(false)
+  const [aiErrorCopied, setAiErrorCopied] = useState(false)
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -438,6 +440,12 @@ function QueryEditor({
     if (aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current)
     setAiLoading(false)
     setAiError('Cancelled')
+  }
+
+  const copyErrorText = (text, setCopied) => {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   const toggleComment = () => {
@@ -708,7 +716,22 @@ function QueryEditor({
             )}
             <button className="ai-panel-close" onClick={() => { if (aiLoading && aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current); setShowAiPanel(false) }}>✕</button>
           </div>
-          {aiError && <div className="ai-panel-error">{aiError}</div>}
+          {aiError && (
+            <div className="ai-panel-error-row">
+              <div className="ai-panel-error">{aiError}</div>
+              <button
+                className="ai-panel-error-copy"
+                onClick={() => copyErrorText(aiError, setAiErrorCopied)}
+                title="Copy error message"
+              >
+                {aiErrorCopied ? (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                )}
+              </button>
+            </div>
+          )}
           {aiLogs.length > 0 && (
             <div className="ai-panel-logs-wrap">
               <button className="ai-panel-logs-toggle" onClick={() => setShowAiLogs(v => !v)}>
@@ -830,6 +853,17 @@ function QueryEditor({
               <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
             </svg>
             <span className="error-suggestion-msg">{queryError.message}</span>
+            <button
+              className="error-suggestion-dismiss"
+              onClick={() => copyErrorText(queryError.message, setErrorCopied)}
+              title="Copy error message"
+            >
+              {errorCopied ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              )}
+            </button>
             <button className="error-suggestion-dismiss" onClick={() => setErrorDismissed(true)} title="Dismiss">✕</button>
           </div>
           {suggestion && (

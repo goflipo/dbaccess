@@ -440,6 +440,63 @@ function MainApp() {
     }
   }, [activeTab, activeTabId, checkSafeMode, saveToHistory, showStatus])
 
+  // --- Table browsing (server-side pagination) ---
+  // Builds the "browse this table" SELECT for a given page. Shared by the
+  // initial table-click open and by page navigation so both stay in sync
+  // (same ctid-for-Postgres handling row edit/delete depends on).
+  const buildTableBrowseQuery = useCallback((tableName, connId, limit, offset) => {
+    const connObj = connections.find(c => c.id === connId)
+    const isPostgres = !connObj?.type || ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connObj?.type)
+    const offsetClause = offset > 0 ? ` OFFSET ${offset}` : ''
+    return isPostgres
+      ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT ${limit}${offsetClause};`
+      : `SELECT * FROM ${tableName} LIMIT ${limit}${offsetClause};`
+  }, [connections])
+
+  // Fire-and-forget total row count for a table-browse tab, so the results
+  // grid can show "Page X of Y" instead of just "there might be more".
+  const fetchTableRowCount = useCallback(async (tabId, connId, tableName) => {
+    try {
+      const result = await window.dbAccess.executeQuery(connId, `SELECT COUNT(*) AS __db_total_count FROM ${tableName};`)
+      const raw = result?.data?.rows?.[0]?.__db_total_count
+      const total = Number(raw)
+      if (result?.success && !Number.isNaN(total)) {
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, tableTotalRows: total } : t))
+      }
+    } catch {
+      // Non-critical — pagination just falls back to "unknown total" mode.
+    }
+  }, [])
+
+  // Re-run a table-browse tab's query at a different page (Prev/Next/First/Last
+  // in the results grid). Always rebuilds the simple browse query from scratch
+  // rather than re-running whatever the user may have edited in the editor —
+  // page navigation is a "browse the table" action, not "re-run my query".
+  const handleTablePageChange = useCallback(async (tabId, newPage) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || !tab.tableFullName || !tab.connectionId || newPage < 0) return
+    const pageSize = settings.pageSize || 100
+    const query = buildTableBrowseQuery(tab.tableFullName, tab.connectionId, pageSize, newPage * pageSize)
+    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: true, query, tablePage: newPage } : t))
+    try {
+      const result = await window.dbAccess.executeQuery(tab.connectionId, query)
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: result, isRunning: false } : t))
+      if (!result.success) showStatus(`Error: ${result.error}`, 'error')
+    } catch (err) {
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: false } : t))
+      showStatus(`Error: ${err.message}`, 'error')
+    }
+  }, [tabs, settings.pageSize, buildTableBrowseQuery, showStatus])
+
+  // Backfill the total row count for a table-browse tab that doesn't have one
+  // yet — covers tabs restored from a previous session (persisted before this
+  // field existed, or simply never viewed since) without eagerly counting
+  // every open tab's table up front.
+  useEffect(() => {
+    if (!activeTab?.tableFullName || !activeTab.connectionId) return
+    if (activeTab.tableTotalRows != null) return
+    fetchTableRowCount(activeTab.id, activeTab.connectionId, activeTab.tableFullName)
+  }, [activeTab?.id, activeTab?.tableFullName, activeTab?.connectionId, activeTab?.tableTotalRows, fetchTableRowCount])
 
   // --- Explain query ---
   const handleExplainQuery = useCallback(async (query) => {
@@ -812,7 +869,12 @@ function MainApp() {
   const handleRefreshQuery = useCallback(() => {
     if (!activeTab?.query?.trim()) return
     handleRunQuery(activeTab.query)
-  }, [activeTab, handleRunQuery])
+    // Row count can drift while browsing (inserts/deletes elsewhere) — keep
+    // "Page X of Y" honest by refreshing it alongside the visible page.
+    if (activeTab.tableFullName && activeTab.connectionId) {
+      fetchTableRowCount(activeTab.id, activeTab.connectionId, activeTab.tableFullName)
+    }
+  }, [activeTab, handleRunQuery, fetchTableRowCount])
 
   const handleRenameTab = useCallback((tabId, newTitle) => {
     if (!newTitle?.trim()) return
@@ -885,19 +947,17 @@ function MainApp() {
 
     const tabId = genId()
     const connObj = connections.find(c => c.id === connId)
+    const pageSize = settings.pageSize || 100
     // Without ctid, row edits/deletes fall back to matching on every column's
     // value, which silently no-ops (or deletes the wrong row) on duplicate rows
     // or values that don't round-trip exactly (floats, timestamps, jsonb key order).
-    const isPostgres = !connObj?.type || ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connObj?.type)
-    const query = isPostgres
-      ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT 100;`
-      : `SELECT * FROM ${tableName} LIMIT 100;`
+    const query = buildTableBrowseQuery(tableName, connId, pageSize, 0)
     const dbName = activeDb || connObj?.database || ''
     const shortName = tableName.split('.').pop()
     const tabTitle = dbName ? `${dbName}.${shortName}` : tableName
     setTabs(prev => [...prev, {
       id: tabId, connectionId: connId, title: tabTitle, tableFullName: tableName,
-      query, results: null, isRunning: true,
+      query, results: null, isRunning: true, tablePage: 0, tableTotalRows: null,
     }])
     setActiveTabId(tabId)
     setActiveConnectionId(connId)
@@ -910,7 +970,10 @@ function MainApp() {
       setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: false } : t))
       showStatus(`Error: ${err.message}`, 'error')
     }
-  }, [activeConnectionId, tabs, showStatus])
+    // Runs in parallel with the row fetch above — total count isn't needed
+    // to show the first page, only to label "Page 1 of N" once it arrives.
+    fetchTableRowCount(tabId, connId, tableName)
+  }, [activeConnectionId, tabs, showStatus, settings.pageSize, buildTableBrowseQuery, fetchTableRowCount])
 
   const handleOpenAnythingTrigger = useCallback(async () => {
     const connected = connections.filter(c => c.connected)
@@ -1182,6 +1245,9 @@ function MainApp() {
                       connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
                       onSaveDeleteHistory={handleSaveDeleteHistory}
                       ctrlSRef={gridCommitRef}
+                      dbTotalRowCount={activeTab.tableTotalRows ?? null}
+                      dbPage={activeTab.tablePage ?? 0}
+                      onDbPageChange={activeTab.tableFullName ? (newPage) => handleTablePageChange(activeTab.id, newPage) : undefined}
                     />
                   )}
                 </>
