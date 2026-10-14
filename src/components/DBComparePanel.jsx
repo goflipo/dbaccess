@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react'
+import SideBySideCompare from './SideBySideCompare'
 import './DBComparePanel.css'
 
 export default function DBComparePanel({ connections }) {
@@ -183,6 +184,12 @@ export default function DBComparePanel({ connections }) {
                 {totalIssues > 0 && <span className="dbcompare-badge-count">{totalIssues}</span>}
               </button>
               <button
+                className={`dbcompare-view-tab ${view === 'side' ? 'active' : ''}`}
+                onClick={() => setView('side')}
+              >
+                Side by side
+              </button>
+              <button
                 className={`dbcompare-view-tab ${view === 'data' ? 'active' : ''}`}
                 onClick={() => { setView('data'); if (!dataDiff) handleCompareData() }}
               >
@@ -277,6 +284,15 @@ export default function DBComparePanel({ connections }) {
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Side-by-side view ── */}
+          {view === 'side' && (
+            <SideBySideCompare
+              schemaDiff={schemaDiff}
+              srcLabel={srcConn?.name || srcConn?.database || 'Source'}
+              tgtLabel={tgtConn?.name || tgtConn?.database || 'Target'}
+            />
           )}
 
           {/* ── Data view ── */}

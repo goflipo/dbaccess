@@ -1157,16 +1157,18 @@ class DatabaseManager {
       const schema = parts.length > 1 ? parts[0] : 'public';
       const table  = parts.length > 1 ? parts[1] : parts[0];
       const fkRes = await conn.client.query(`
-        SELECT DISTINCT tc.table_schema AS ref_schema, tc.table_name AS ref_table,
-          kcu.column_name AS ref_column, ccu.column_name AS src_column
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-        JOIN information_schema.constraint_column_usage ccu
-          ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-          AND ccu.table_schema = $1 AND ccu.table_name = $2
-        ORDER BY tc.table_schema, tc.table_name`, [schema, table]);
+        SELECT DISTINCT n.nspname AS ref_schema, c.relname AS ref_table,
+          a.attname AS ref_column, fa.attname AS src_column
+        FROM pg_constraint con
+        JOIN pg_class c ON c.oid = con.conrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_class fc ON fc.oid = con.confrelid
+        JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+        CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS k(attnum, fattnum)
+        JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+        JOIN pg_attribute fa ON fa.attrelid = con.confrelid AND fa.attnum = k.fattnum
+        WHERE con.contype = 'f' AND fn.nspname = $1 AND fc.relname = $2
+        ORDER BY ref_schema, ref_table`, [schema, table]);
 
       const refs = [];
       for (const fk of fkRes.rows) {
@@ -1791,20 +1793,31 @@ class DatabaseManager {
     ]);
     const srcMap = new Map(srcTables.map(t => [t.fullName, t]));
     const tgtMap = new Map(tgtTables.map(t => [t.fullName, t]));
-    const result = { onlyInSource: [], onlyInTarget: [], same: [], different: [] };
+    const result = { onlyInSource: [], onlyInTarget: [], same: [], different: [], all: [] };
 
     for (const [name, srcTable] of srcMap) {
-      if (!tgtMap.has(name)) { result.onlyInSource.push(srcTable); continue; }
-      const diff = this._diffColumns(srcTable.columns, tgtMap.get(name).columns);
-      if (!diff.added.length && !diff.removed.length && !diff.changed.length) {
+      if (!tgtMap.has(name)) {
+        result.onlyInSource.push(srcTable);
+        result.all.push({ name, status: 'onlySource', srcColumns: srcTable.columns, tgtColumns: [] });
+        continue;
+      }
+      const tgtTable = tgtMap.get(name);
+      const diff = this._diffColumns(srcTable.columns, tgtTable.columns);
+      const identical = !diff.added.length && !diff.removed.length && !diff.changed.length;
+      result.all.push({ name, status: identical ? 'same' : 'different', srcColumns: srcTable.columns, tgtColumns: tgtTable.columns });
+      if (identical) {
         result.same.push(name);
       } else {
         result.different.push({ table: name, srcTable, tgtTable: tgtMap.get(name), diff });
       }
     }
     for (const [name, tgtTable] of tgtMap) {
-      if (!srcMap.has(name)) result.onlyInTarget.push(tgtTable);
+      if (!srcMap.has(name)) {
+        result.onlyInTarget.push(tgtTable);
+        result.all.push({ name, status: 'onlyTarget', srcColumns: [], tgtColumns: tgtTable.columns });
+      }
     }
+    result.all.sort((a, b) => a.name.localeCompare(b.name));
     return result;
   }
 
