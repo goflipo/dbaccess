@@ -10,6 +10,7 @@ import DBComparePanel from './components/DBComparePanel'
 import BroadcastPanel from './components/BroadcastPanel'
 import ConnectionModal, { DB_TYPES } from './components/ConnectionModal'
 import StatusBar from './components/StatusBar'
+import TextPromptModal from './components/TextPromptModal'
 import CreateTableModal from './components/CreateTableModal'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import OpenAnythingModal from './components/OpenAnythingModal'
@@ -67,6 +68,7 @@ function MainApp() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showFavoritesModal, setShowFavoritesModal] = useState(false)
   const [showTableStructure, setShowTableStructure] = useState(null) // { connId, tableName }
+  const [importPrompt, setImportPrompt] = useState(null) // { connId }
   const [allTablesCatalog, setAllTablesCatalog] = useState([])
   const [queryHistory, setQueryHistory] = useState(null)
 
@@ -893,11 +895,15 @@ function MainApp() {
     setShowTableStructure({ connId, tableName })
   }, [])
 
-  const handleImportCSVFromSidebar = useCallback(async (connId) => {
-    const tableName = prompt('Enter target table name for CSV import:')
-    if (!tableName || !tableName.trim()) return
-    const result = await window.dbAccess.importData(connId, tableName.trim())
-    if (result.success) showStatus(`Imported ${result.insertedCount} rows into ${tableName.trim()}`, 'success')
+  // window.prompt() is unsupported in Electron, so ask for the table name in-app.
+  const handleImportCSVFromSidebar = useCallback((connId) => {
+    if (!connId) return showStatus('No active connection', 'error')
+    setImportPrompt({ connId })
+  }, [showStatus])
+
+  const runCsvImport = useCallback(async (connId, tableName) => {
+    const result = await window.dbAccess.importData(connId, tableName)
+    if (result.success) showStatus(`Imported ${result.insertedCount} rows into ${tableName}`, 'success')
     else if (result.error !== 'Import cancelled') showStatus(`Import failed: ${result.error}`, 'error')
   }, [showStatus])
 
@@ -1207,7 +1213,7 @@ function MainApp() {
               ) : activeTab.type === 'broadcast' ? (
                 <BroadcastPanel connections={connections} />
               ) : activeTab.type === 'compare' ? (
-                <DBComparePanel connections={connections} />
+                <DBComparePanel connections={connections} safeMode={safeMode} onToggleSafeMode={(val) => { setSafeMode(val); localStorage.setItem('dbaccess:safeMode', val) }} />
               ) : (
                 <>
                   <QueryEditor
@@ -1385,6 +1391,17 @@ function MainApp() {
             setSqlFileExecution(prev => prev ? { ...prev, status: 'cancelled' } : prev)
           }}
           onClose={() => setSqlFileExecution(null)}
+        />
+      )}
+
+      {importPrompt && (
+        <TextPromptModal
+          title="Import CSV"
+          label="Target table name (schema.table allowed). Column names come from the CSV header."
+          placeholder="e.g. public.users"
+          confirmLabel="Choose file…"
+          onCancel={() => setImportPrompt(null)}
+          onSubmit={(name) => { const { connId } = importPrompt; setImportPrompt(null); runCsvImport(connId, name) }}
         />
       )}
 

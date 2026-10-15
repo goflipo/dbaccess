@@ -1910,24 +1910,33 @@ class DatabaseManager {
   async applySyncScript(connId, script) {
     const conn = this.connections.get(connId);
     if (!conn) throw new Error('Connection not found');
-    const statements = script.split('\n')
-      .filter(l => !l.trimStart().startsWith('--') && l.trim())
-      .join('\n')
-      .split(';')
-      .map(s => s.trim())
-      .filter(Boolean);
+    // Dialect-aware split (handles $$ bodies, quoted semicolons, comments, DELIMITER) instead of split(';')
+    const wire = PG_WIRE.has(conn.type) ? 'postgres' : MYSQL_WIRE.has(conn.type) ? 'mysql' : null;
+    let statements;
+    if (wire) {
+      statements = require('./migration/sql').splitStatements(String(script), wire).map(s => s.sql);
+    } else {
+      statements = script.split('\n').filter(l => !l.trimStart().startsWith('--') && l.trim()).join('\n').split(';').map(s => s.trim()).filter(Boolean);
+    }
 
     let executed = 0;
     const errors = [];
-    for (const stmt of statements) {
-      try {
-        if (PG_WIRE.has(conn.type))         await conn.client.query(stmt);
-        else if (MYSQL_WIRE.has(conn.type)) await conn.client.query(stmt);
-        else await conn.client.query({ query: stmt, format: 'JSONEachRow' });
-        executed++;
-      } catch (err) {
-        errors.push({ statement: stmt.slice(0, 120) + (stmt.length > 120 ? '…' : ''), error: err.message });
+    // Pools do not keep session state between calls: run the whole script on ONE dedicated client so that
+    // BEGIN/COMMIT inside the script behave as written.
+    const dedicated = wire === 'postgres' ? await conn.client.connect() : wire === 'mysql' ? await conn.client.getConnection() : null;
+    try {
+      for (const stmt of statements) {
+        try {
+          if (dedicated) await dedicated.query(stmt);
+          else await conn.client.query({ query: stmt, format: 'JSONEachRow' });
+          executed++;
+        } catch (err) {
+          errors.push({ statement: stmt.slice(0, 120) + (stmt.length > 120 ? '…' : ''), error: err.message });
+          if (dedicated && wire === 'postgres') { try { await dedicated.query('ROLLBACK'); } catch (e) { /* ignore */ } }
+        }
       }
+    } finally {
+      if (dedicated) { if (wire === 'postgres') dedicated.release(true); else dedicated.release(); }
     }
     return { executed, errors, total: statements.length };
   }

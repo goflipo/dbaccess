@@ -35,9 +35,17 @@ function ColCell({ col, status }) {
   )
 }
 
-export default function SideBySideCompare({ schemaDiff, srcLabel, tgtLabel }) {
+export default function SideBySideCompare({ schemaDiff, srcLabel, tgtLabel, selected: selectedProp, onSelectedChange }) {
   const tables = schemaDiff.all || []
-  const [selected, setSelected] = useState(() => new Set(tables.map(t => t.name)))
+  // Selection may be controlled by the parent (so it survives view-tab switches) or kept locally.
+  const isControlled = selectedProp !== undefined
+  const [inner, setInner] = useState(() => new Set(tables.map(t => t.name)))
+  const selected = isControlled ? selectedProp : inner
+  const setSelected = (updater) => {
+    const next = typeof updater === 'function' ? updater(selected) : updater
+    if (isControlled) onSelectedChange?.(next)
+    else setInner(next)
+  }
   const [expanded, setExpanded] = useState(new Set())
   const [filter, setFilter] = useState('')
   const [hideSame, setHideSame] = useState(false)

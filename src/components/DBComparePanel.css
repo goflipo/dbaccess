@@ -236,3 +236,10 @@
   animation: cmp-spin 0.7s linear infinite; display: inline-block;
 }
 @keyframes cmp-spin { to { transform: rotate(360deg); } }
+
+/* Migration entry points */
+.dbcompare-action-primary { border-color: var(--accent-primary); color: var(--accent-primary); }
+.dbcompare-action-primary:hover:not(:disabled) { background: var(--accent-primary); color: #fff; }
+.dbcompare-hint { background: none; border: none; color: var(--text-secondary); font-size: 11px; cursor: pointer; text-decoration: underline; }
+.dbcompare-hint-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--bg-active); color: var(--text-secondary); align-self: center; }
+.dbcompare-hint-line { font-size: 11px; color: var(--text-secondary); padding: 4px 16px; }

@@ -1,8 +1,10 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import SideBySideCompare from './SideBySideCompare'
+import MigrationWizard from './MigrationWizard'
+import { isMigratable } from '../utils/migrationSupport'
 import './DBComparePanel.css'
 
-export default function DBComparePanel({ connections }) {
+export default function DBComparePanel({ connections, safeMode, onToggleSafeMode }) {
   const connected = connections.filter(c => c.connected)
 
   const [srcId, setSrcId] = useState(connected[0]?.id || '')
@@ -18,6 +20,11 @@ export default function DBComparePanel({ connections }) {
   const [script, setScript] = useState(null)
   const [applying, setApplying] = useState(false)
   const [applyResult, setApplyResult] = useState(null)
+  // null = "all tables, not yet touched"; lives here so it survives view-tab switches
+  const [selectedTables, setSelectedTables] = useState(null)
+  const [showWizard, setShowWizard] = useState(false)
+  const [scriptSource, setScriptSource] = useState('legacy')
+  const [scriptWarnings, setScriptWarnings] = useState([])
 
   const srcConn = connected.find(c => c.id === srcId)
   const tgtConn = connected.find(c => c.id === tgtId)
@@ -32,11 +39,14 @@ export default function DBComparePanel({ connections }) {
     setSchemaDiff(null)
     setDataDiff(null)
     setScript(null)
+    setScriptWarnings([])
     setApplyResult(null)
+    setSelectedTables(null)
     try {
       const res = await window.dbAccess.compareSchema(srcId, tgtId)
       if (!res.success) throw new Error(res.error)
       setSchemaDiff(res.data)
+      setSelectedTables(new Set((res.data.all || []).map(t => t.name)))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -64,11 +74,51 @@ export default function DBComparePanel({ connections }) {
     }
   }, [schemaDiff, srcId, tgtId])
 
+  const migratable = !!srcConn && !!tgtConn && srcConn.type === tgtConn.type && isMigratable(srcConn.type)
+  const allNames = useMemo(() => schemaDiff ? schemaDiff.all.map(t => t.name) : [], [schemaDiff])
+  const allSet = useMemo(() => new Set(allNames), [allNames])
+  const reversed = direction === 'tgt_to_src'
+  // The diff re-oriented for the migration flow: when the direction is reversed, "only in source" tables are
+  // the ones that exist only in the migration TARGET, and the column sides swap too.
+  const flowDiff = useMemo(() => {
+    if (!schemaDiff || !reversed) return schemaDiff
+    const flip = { onlySource: 'onlyTarget', onlyTarget: 'onlySource' }
+    return { ...schemaDiff, all: schemaDiff.all.map(t => ({ ...t, status: flip[t.status] || t.status, srcColumns: t.tgtColumns, tgtColumns: t.srcColumns })) }
+  }, [schemaDiff, reversed])
+  // Only tables that exist in the migration source can be selected (target-only tables are never sent to the planner).
+  const flowSourceNames = useMemo(() => flowDiff ? flowDiff.all.filter(t => t.status !== 'onlyTarget').map(t => t.name) : [], [flowDiff])
+  const selectedList = useMemo(() => flowSourceNames.filter(n => !selectedTables || selectedTables.has(n)), [flowSourceNames, selectedTables])
+
+  // Migration always flows source -> target, so swap everything when the direction is reversed.
+  const flowSrcId = direction === 'tgt_to_src' ? tgtId : srcId
+  const flowTgtId = direction === 'tgt_to_src' ? srcId : tgtId
+  const flowSrcConn = direction === 'tgt_to_src' ? tgtConn : srcConn
+  const flowTgtConn = direction === 'tgt_to_src' ? srcConn : tgtConn
+
   const handleGenerateScript = useCallback(async () => {
     if (!schemaDiff) return
+    setScriptWarnings([])
+    if (migratable && window.dbAccess.migrationPlan) {
+      try {
+        const res = await window.dbAccess.migrationPlan(flowSrcId, flowTgtId, {
+          tables: selectedList.length === flowSourceNames.length ? null : selectedList,
+          includeSchema: true, includeData: false,
+          allowDrops: false, alterTypes: true, createIndexes: true, createConstraints: true,
+          createViews: true, syncSequences: true, dryRun: true,
+        })
+        if (!res.success) throw new Error(res.error)
+        setScript(res.data.script)
+        setScriptSource('plan')
+        setScriptWarnings((res.data.warnings || []).filter(w => w.level === 'blocker' || w.level === 'warn'))
+      } catch (err) {
+        setError(err.message)
+      }
+      return
+    }
+    // Unsupported engines keep the legacy generator
     const res = await window.dbAccess.generateSyncScript(schemaDiff, direction)
-    if (res.success) setScript(res.data)
-  }, [schemaDiff, direction])
+    if (res.success) { setScript(res.data); setScriptSource('legacy') }
+  }, [schemaDiff, direction, migratable, flowSrcId, flowTgtId, selectedList, flowSourceNames])
 
   const handleApply = useCallback(async () => {
     if (!script) return
@@ -106,6 +156,9 @@ export default function DBComparePanel({ connections }) {
   const swap = () => {
     setSrcId(tgtId)
     setTgtId(srcId)
+    setSelectedTables(null)
+    // the existing diff/script belong to the old orientation
+    setSchemaDiff(null); setDataDiff(null); setScript(null); setError(null)
   }
 
   const totalIssues = schemaDiff
@@ -120,7 +173,7 @@ export default function DBComparePanel({ connections }) {
       <div className="dbcompare-bar">
         <div className="dbcompare-endpoint">
           <span className="dbcompare-endpoint-label">Source</span>
-          <select value={srcId} onChange={e => { setSrcId(e.target.value); setSchemaDiff(null); setDataDiff(null); setScript(null); setError(null) }} className="dbcompare-select">
+          <select value={srcId} onChange={e => { setSrcId(e.target.value); setSchemaDiff(null); setDataDiff(null); setScript(null); setError(null); setSelectedTables(null) }} className="dbcompare-select">
             {connected.map(c => <option key={c.id} value={c.id}>[{c.type}] {c.name || c.host}{c.database ? ` / ${c.database}` : ''}</option>)}
           </select>
         </div>
@@ -133,7 +186,7 @@ export default function DBComparePanel({ connections }) {
 
         <div className="dbcompare-endpoint">
           <span className="dbcompare-endpoint-label">Target</span>
-          <select value={tgtId} onChange={e => { setTgtId(e.target.value); setSchemaDiff(null); setDataDiff(null); setScript(null); setError(null) }} className="dbcompare-select">
+          <select value={tgtId} onChange={e => { setTgtId(e.target.value); setSchemaDiff(null); setDataDiff(null); setScript(null); setError(null); setSelectedTables(null) }} className="dbcompare-select">
             {connected.map(c => <option key={c.id} value={c.id}>[{c.type}] {c.name || c.host}{c.database ? ` / ${c.database}` : ''}</option>)}
           </select>
         </div>
@@ -151,7 +204,7 @@ export default function DBComparePanel({ connections }) {
       </div>
 
       {sameConn  && <div className="dbcompare-warn">Source and target must be different connections.</div>}
-      {crossType && !sameConn && <div className="dbcompare-warn">Cannot compare {srcConn?.type} with {tgtConn?.type} — both connections must use the same database type.</div>}
+      {crossType && !sameConn && <div className="dbcompare-warn"><strong>Cross-engine migration is not supported.</strong> Cannot compare {srcConn?.type} with {tgtConn?.type} — both connections must use the same database type.</div>}
       {error && <div className="dbcompare-error">{error}</div>}
 
       {/* ── Results ── */}
@@ -292,6 +345,8 @@ export default function DBComparePanel({ connections }) {
               schemaDiff={schemaDiff}
               srcLabel={srcConn?.name || srcConn?.database || 'Source'}
               tgtLabel={tgtConn?.name || tgtConn?.database || 'Target'}
+              selected={selectedTables ?? allSet}
+              onSelectedChange={setSelectedTables}
             />
           )}
 
@@ -333,11 +388,27 @@ export default function DBComparePanel({ connections }) {
 
           {/* ── Actions ── */}
           <div className="dbcompare-actions">
-            <button className="dbcompare-action-btn" onClick={handleGenerateScript} disabled={totalIssues === 0}>
+            {view !== 'side' && (
+              <button className="dbcompare-hint" onClick={() => setView('side')} title="Change the selection in Side by side">
+                {selectedList.length} of {allNames.length} tables selected (change in Side by side)
+              </button>
+            )}
+            <button className="dbcompare-action-btn" onClick={handleGenerateScript}
+              disabled={selectedList.length === 0 || (!migratable && totalIssues === 0)}
+              title={selectedList.length === 0 ? 'Select at least one table in Side by side.' : undefined}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>
               Generate SQL Script
             </button>
-            {script && (
+            <button className="dbcompare-action-btn dbcompare-action-primary" onClick={() => setShowWizard(true)}
+              disabled={selectedList.length === 0 || !migratable}
+              title={selectedList.length === 0 ? 'Select at least one table in Side by side.'
+                : !migratable ? 'Migration supports PostgreSQL-compatible and MySQL/MariaDB only.'
+                : 'Same-engine only: migrate schema and data from source to target'}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="9" cy="5" rx="6" ry="2.5"/><path d="M3 5v10c0 1.4 2.7 2.5 6 2.5M15 12h7m0 0l-3-3m3 3l-3 3M3 10c0 1.4 2.7 2.5 6 2.5"/></svg>
+              Migrate…
+            </button>
+            <span className="dbcompare-hint-chip">Same-engine only</span>
+            {script && scriptSource === 'legacy' && (
               <button className="dbcompare-action-btn dbcompare-action-danger" onClick={handleApply} disabled={applying}>
                 {applying ? <span className="dbcompare-spinner" /> : (
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -346,6 +417,16 @@ export default function DBComparePanel({ connections }) {
               </button>
             )}
           </div>
+
+          {script && scriptSource === 'plan' && (
+            <div className="dbcompare-hint-line">Use Migrate… to run this with transactions, ordering and data copy.</div>
+          )}
+          {scriptWarnings.length > 0 && (
+            <details className="dbcompare-warn">
+              <summary>{scriptWarnings.length} warning(s) in generated script</summary>
+              {scriptWarnings.map((w, i) => <div key={i}>[{w.level}] {w.object}: {w.message}</div>)}
+            </details>
+          )}
 
           {/* Apply result */}
           {applyResult && (
@@ -387,6 +468,15 @@ export default function DBComparePanel({ connections }) {
           </svg>
           <p>Select source and target connections, then click <strong>Compare</strong></p>
         </div>
+      )}
+
+      {showWizard && schemaDiff && (
+        <MigrationWizard
+          srcId={flowSrcId} tgtId={flowTgtId} srcConn={flowSrcConn} tgtConn={flowTgtConn}
+          schemaDiff={flowDiff} selectedTables={selectedList}
+          safeMode={safeMode} onToggleSafeMode={onToggleSafeMode}
+          onClose={(r) => { setShowWizard(false); if (r?.ran) handleCompare() }}
+        />
       )}
     </div>
   )

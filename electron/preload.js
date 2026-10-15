@@ -48,6 +48,17 @@ contextBridge.exposeInMainWorld('dbAccess', {
   generateSyncScript: (schemaDiff, direction) => ipcRenderer.invoke('db:generate-sync-script', schemaDiff, direction),
   applySync: (connId, script) => ipcRenderer.invoke('db:apply-sync', connId, script),
 
+  // --- DB Migration ---
+  migrationPlan: (srcId, tgtId, options) => ipcRenderer.invoke('migration:plan', srcId, tgtId, options),
+  migrationRun: (runId, srcId, tgtId, options) => ipcRenderer.invoke('migration:run', runId, srcId, tgtId, options),
+  migrationCancel: (runId) => ipcRenderer.invoke('migration:cancel', runId),
+  migrationVerify: (srcId, tgtId, tables) => ipcRenderer.invoke('migration:verify', srcId, tgtId, tables),
+  onMigrationProgress: (cb) => {
+    const handler = (_event, evt) => cb(evt);
+    ipcRenderer.on('migration:progress', handler);
+    return () => ipcRenderer.removeListener('migration:progress', handler);
+  },
+
   // --- Metrics ---
   getMetrics: (connectionId) => ipcRenderer.invoke('db:get-metrics', connectionId),
 

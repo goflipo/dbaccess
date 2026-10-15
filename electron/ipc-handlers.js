@@ -388,6 +388,39 @@ function registerIpcHandlers(ipcMain, dialog) {
     catch (error) { return { success: false, error: error.message }; }
   });
 
+  // --- DB Migration (same-engine: PostgreSQL-wire and MySQL/MariaDB) ---
+  // Plain-JS module (not compiled to .jsc) required lazily so a problem in it can never break app start-up.
+  const migration = () => require('./migration');
+  ipcMain.handle('migration:plan', async (event, srcId, tgtId, options) => {
+    try { return { success: true, data: await migration().buildPlan(dbManager, srcId, tgtId, options) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+
+  ipcMain.handle('migration:run', async (event, runId, srcId, tgtId, options) => {
+    const sender = event.sender;
+    // never keep copying into a database for a window that no longer exists
+    const onGone = () => migration().cancelMigration(runId);
+    try { sender.once('destroyed', onGone); } catch (e) { /* ignore */ }
+    try {
+      const report = await migration().runMigration(dbManager, srcId, tgtId, options, {
+        runId,
+        onProgress: (evt) => { try { if (!sender.isDestroyed()) sender.send('migration:progress', evt); } catch (e) { /* ignore */ } },
+      });
+      return { success: true, data: report };
+    } catch (error) { return { success: false, error: error.message }; }
+    finally { try { sender.removeListener('destroyed', onGone); } catch (e) { /* ignore */ } }
+  });
+
+  ipcMain.handle('migration:cancel', async (event, runId) => {
+    try { return { success: true, data: migration().cancelMigration(runId) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+
+  ipcMain.handle('migration:verify', async (event, srcId, tgtId, tables) => {
+    try { return { success: true, data: await migration().verifyMigration(dbManager, srcId, tgtId, tables) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+
   // --- Metrics ---
   ipcMain.handle('db:get-metrics', async (event, connectionId) => {
     try { return { success: true, data: await dbManager.getMetrics(connectionId) }; }
@@ -473,36 +506,74 @@ function registerIpcHandlers(ipcMain, dialog) {
       });
       if (result.canceled || result.filePaths.length === 0) return { success: false, error: 'Import cancelled' };
 
-      const fileContent = fs.readFileSync(result.filePaths[0], 'utf-8');
-      const { parse } = require('csv-parse/sync');
-      const records = parse(fileContent, { columns: true, skip_empty_lines: true, trim: true });
-      if (records.length === 0) return { success: false, error: 'No data found in file' };
-
+      if (!tableName || !String(tableName).trim()) throw new Error('Target table name is required');
       const conn = dbManager.getConnection(connectionId);
       if (!conn) throw new Error('Connection not found');
+      const isPg = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(conn.type);
+      const isMy = ['mysql', 'mariadb'].includes(conn.type);
+      if (!isPg && !isMy && conn.type !== 'clickhouse') {
+        throw new Error(`CSV import is not supported for ${conn.type} connections`);
+      }
+
+      // Strip a UTF-8 BOM (Excel exports) so the first header isn't "﻿id"; treat empty cells as NULL.
+      const fileContent = fs.readFileSync(result.filePaths[0], 'utf-8').replace(/^﻿/, '');
+      const { parse } = require('csv-parse/sync');
+      const records = parse(fileContent, {
+        columns: true, skip_empty_lines: true, trim: true, bom: true,
+        relax_column_count: true,
+        cast: (v, ctx) => (!ctx.header && v === '' ? null : v),
+      });
+      if (records.length === 0) return { success: false, error: 'No data found in file' };
+
       const columns = Object.keys(records[0]);
       let insertedCount = 0;
 
-      if (conn.type === 'postgres') {
+      if (isPg) {
         const qTablePg = tableName.split('.').map(p => `"${p.replace(/"/g, '""')}"`).join('.');
-        for (const record of records) {
-          const values = columns.map((_, i) => `$${i + 1}`).join(', ');
-          const quotedColumns = columns.map(c => `"${c.replace(/"/g, '""')}"`).join(', ');
-          await conn.client.query(`INSERT INTO ${qTablePg} (${quotedColumns}) VALUES (${values})`, columns.map(col => record[col]));
-          insertedCount++;
+        const quotedColumns = columns.map(c => `"${c.replace(/"/g, '""')}"`).join(', ');
+        const values = columns.map((_, i) => `$${i + 1}`).join(', ');
+        // All-or-nothing: a bad row rolls the whole import back instead of leaving a partial load.
+        const client = await conn.client.connect();
+        try {
+          await client.query('BEGIN');
+          for (let i = 0; i < records.length; i++) {
+            try {
+              await client.query(`INSERT INTO ${qTablePg} (${quotedColumns}) VALUES (${values})`, columns.map(col => records[i][col] ?? null));
+            } catch (err) {
+              throw new Error(`Row ${i + 2} of the CSV failed: ${err.message}`);
+            }
+            insertedCount++;
+          }
+          await client.query('COMMIT');
+        } catch (err) {
+          try { await client.query('ROLLBACK'); } catch {}
+          throw err;
+        } finally {
+          client.release();
         }
-      } else if (conn.type === 'mysql') {
+      } else if (isMy) {
         const qTableMy = tableName.split('.').map(p => `\`${p.replace(/`/g, '``')}\``).join('.');
         const quotedColumns = columns.map(c => `\`${c.replace(/`/g, '``')}\``).join(', ');
         const placeholders = columns.map(() => '?').join(', ');
-        for (const record of records) {
-          await conn.client.query(
-            `INSERT INTO ${qTableMy} (${quotedColumns}) VALUES (${placeholders})`,
-            columns.map(col => record[col])
-          );
-          insertedCount++;
+        const client = await conn.client.getConnection();
+        try {
+          await client.beginTransaction();
+          for (let i = 0; i < records.length; i++) {
+            try {
+              await client.query(`INSERT INTO ${qTableMy} (${quotedColumns}) VALUES (${placeholders})`, columns.map(col => records[i][col] ?? null));
+            } catch (err) {
+              throw new Error(`Row ${i + 2} of the CSV failed: ${err.message}`);
+            }
+            insertedCount++;
+          }
+          await client.commit();
+        } catch (err) {
+          try { await client.rollback(); } catch {}
+          throw err;
+        } finally {
+          client.release();
         }
-      } else if (conn.type === 'clickhouse') {
+      } else {
         await conn.client.insert({ table: tableName, values: records, format: 'JSONEachRow' });
         insertedCount = records.length;
       }
