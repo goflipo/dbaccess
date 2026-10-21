@@ -45,7 +45,12 @@ const sqlLiteral = (v) => {
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
   // Real Date instances (ideal path)
   if (v instanceof Date) return `'${v.toISOString()}'`
-  // Objects (jsonb, arrays, etc.)
+  // Arrays of scalars -> Postgres array literal ('{"a","b"}'); JSON text is "malformed array literal"
+  if (Array.isArray(v) && v.every(el => el === null || typeof el !== 'object')) {
+    const els = v.map(el => el === null ? 'NULL' : `"${String(el).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')
+    return `'${`{${els}}`.replace(/'/g, "''")}'`
+  }
+  // Objects (jsonb, arrays of objects, etc.)
   if (typeof v === 'object') return `'${JSON.stringify(v).replace(/'/g, "''")}'`
   const str = String(v)
   // Electron contextBridge converts Date→string via .toString(); detect and fix

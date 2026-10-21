@@ -772,6 +772,14 @@ function MainApp() {
     setDropTablePending({ connId, tableNames: [tableName] })
   }, [])
 
+  const handleDeleteAllTables = useCallback(async (connId) => {
+    const result = await window.dbAccess.getTables(connId)
+    if (!result.success) { showStatus(`Failed to load tables: ${result.error}`, 'error'); return }
+    const tableNames = result.data.filter(t => !t.type || t.type === 'BASE TABLE').map(t => t.fullName)
+    if (tableNames.length === 0) { showStatus('No tables to delete in this database', 'info'); return }
+    setDropTablePending({ connId, tableNames, defaultCascade: true })
+  }, [showStatus])
+
   const handleDeleteMultipleTables = useCallback((connId, tableNames) => {
     setDropTablePending({ connId, tableNames })
   }, [])
@@ -1189,6 +1197,7 @@ function MainApp() {
           onTruncateTable={handleTruncateTable}
           onShowTableStructure={handleShowTableStructure}
           onDeleteMultipleTables={handleDeleteMultipleTables}
+          onDeleteAllTables={handleDeleteAllTables}
         />
         <div className="app-main">
           <TabBar
@@ -1331,6 +1340,7 @@ function MainApp() {
       {dropTablePending && (
         <DropTableModal
           tables={dropTablePending.tableNames}
+          defaultCascade={!!dropTablePending.defaultCascade}
           connectionType={connections.find(c => c.id === dropTablePending.connId)?.type || 'postgres'}
           onConfirm={handleConfirmDropTables}
           onCancel={() => setDropTablePending(null)}

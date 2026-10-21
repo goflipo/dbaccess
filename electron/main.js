@@ -78,13 +78,22 @@ function createWindow() {
   // Show only after the page has painted — no white flash, no partial content.
   win.once('ready-to-show', () => win.show());
 
-  // Disable pinch/trackpad zoom and the Ctrl+=/-/0 zoom accelerators — a
-  // native desktop app's UI doesn't rescale like a webpage.
+  // Pinch/trackpad zoom stays disabled; Ctrl +/-/0 zoom in, out and reset.
   win.webContents.setVisualZoomLevelLimits(1, 1);
   win.webContents.on('before-input-event', (event, input) => {
-    if (input.control && ['+', '-', '=', '0'].includes(input.key)) {
-      event.preventDefault();
+    if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
+    const wc = win.webContents;
+    const level = wc.getZoomLevel();
+    if (input.key === '+' || input.key === '=') {
+      wc.setZoomLevel(Math.min(level + 0.5, 5));
+    } else if (input.key === '-' || input.key === '_') {
+      wc.setZoomLevel(Math.max(level - 0.5, -3));
+    } else if (input.key === '0') {
+      wc.setZoomLevel(0);
+    } else {
+      return;
     }
+    event.preventDefault();
   });
 
   if (!app.isPackaged) {

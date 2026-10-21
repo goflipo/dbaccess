@@ -45,6 +45,38 @@ const getLayoutedElements = (nodes, edges) => {
   return { nodes: layoutedNodes, edges };
 };
 
+// Compact layout around a selected table: tables it references go right,
+// tables referencing it go left, all stacked close to the selected node.
+const getFocusPositions = (nodes, edges, selectedId) => {
+  const sel = nodes.find(n => n.id === selectedId)
+  if (!sel) return {}
+  const heightOf = (n) => 44 + n.data.columns.length * 26
+  const GAP_X = 180, GAP_Y = 40, W = 280
+  const outgoing = new Set(), incoming = new Set()
+  edges.forEach(e => {
+    if (e.source === selectedId && e.target !== selectedId) outgoing.add(e.target)
+    if (e.target === selectedId && e.source !== selectedId) incoming.add(e.source)
+  })
+  incoming.forEach(id => { if (outgoing.has(id)) incoming.delete(id) })
+
+  const selH = heightOf(sel)
+  const centerY = sel.position.y + selH / 2
+  const positions = { [selectedId]: { x: sel.position.x, y: sel.position.y } }
+
+  const stack = (ids, x) => {
+    const list = nodes.filter(n => ids.has(n.id))
+    const total = list.reduce((sum, n) => sum + heightOf(n), 0) + GAP_Y * Math.max(0, list.length - 1)
+    let y = centerY - total / 2
+    list.forEach(n => {
+      positions[n.id] = { x, y }
+      y += heightOf(n) + GAP_Y
+    })
+  }
+  stack(outgoing, sel.position.x + W + GAP_X)
+  stack(incoming, sel.position.x - W - GAP_X)
+  return positions
+}
+
 // ── FK Badge inside column row ──────────────────────────────────────────────
 const FK_ICON = (
   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
@@ -128,6 +160,7 @@ export default function ERDiagram({ connectionId, dbAccess }) {
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [fkCount, setFkCount] = useState(0)
+  const [focusPos, setFocusPos] = useState({})
 
   const nodeTypes = useMemo(() => ({ table: TableNode }), [])
 
@@ -219,15 +252,32 @@ export default function ERDiagram({ connectionId, dbAccess }) {
     return () => { mounted = false }
   }, [connectionId, dbAccess])
 
-  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), [])
+  const onNodesChange = useCallback((changes) => {
+    const isFocus = Object.keys(focusPos).length > 0
+    const posChanges = isFocus ? changes.filter(c => c.type === 'position' && c.position) : []
+    if (posChanges.length > 0) {
+      setFocusPos(prev => {
+        const next = { ...prev }
+        posChanges.forEach(c => { next[c.id] = c.position })
+        return next
+      })
+    }
+    const rest = isFocus ? changes.filter(c => c.type !== 'position') : changes
+    if (rest.length > 0) setNodes((nds) => applyNodeChanges(rest, nds))
+  }, [focusPos])
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), [])
 
   const onNodeClick = useCallback((_, node) => {
-    setSelectedNode(prev => prev === node.id ? null : node.id)
-  }, [])
+    setSelectedNode(prev => {
+      const next = prev === node.id ? null : node.id
+      setFocusPos(next ? getFocusPositions(nodes, edges, next) : {})
+      return next
+    })
+  }, [nodes, edges])
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null)
+    setFocusPos({})
   }, [])
 
   // Auto-zoom to selected node and its connected nodes
@@ -240,17 +290,13 @@ export default function ERDiagram({ connectionId, dbAccess }) {
       return
     }
 
-    const relatedNodeIds = new Set([selectedNode])
-    edges.forEach(edge => {
-      if (edge.source === selectedNode) relatedNodeIds.add(edge.target)
-      if (edge.target === selectedNode) relatedNodeIds.add(edge.source)
-    })
-
-    const relatedNodes = nodes.filter(n => relatedNodeIds.has(n.id))
-    if (relatedNodes.length > 0) {
-      rfInstance.fitView({ nodes: relatedNodes, padding: 0.2, duration: 800 })
-    }
-  }, [selectedNode, nodes, edges, rfInstance])
+    const timer = setTimeout(() => {
+      const ids = Object.keys(focusPos).map(id => ({ id }))
+      if (ids.length > 0) rfInstance.fitView({ nodes: ids, padding: 0.2, duration: 800 })
+    }, 60)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode, rfInstance])
 
   // Highlight connected nodes when one is selected
   const displayNodes = useMemo(() => {
@@ -281,19 +327,20 @@ export default function ERDiagram({ connectionId, dbAccess }) {
         }
       })
 
-      const isDimmed = !isRelated
       return {
         ...node,
+        hidden: !isRelated,
+        position: focusPos[node.id] || node.position,
         data: { ...node.data, activeColumns },
         style: {
-          opacity: isDimmed ? 0.12 : 1,
-          filter: isDimmed ? 'blur(2px) grayscale(0.7)' : 'none',
+          opacity: 1,
+          filter: 'none',
           transition: 'all 0.35s ease',
-          zIndex: isSelected ? 10 : (isRelated ? 5 : 0),
+          zIndex: isSelected ? 10 : 5,
         }
       }
     })
-  }, [nodes, edges, selectedNode])
+  }, [nodes, edges, selectedNode, focusPos])
 
   const displayEdges = useMemo(() => {
     return edges.map(edge => {
@@ -302,6 +349,7 @@ export default function ERDiagram({ connectionId, dbAccess }) {
 
       return {
         ...edge,
+        hidden: !!isDimmed,
         style: {
           stroke: isActive ? '#3dd68c' : (isDimmed ? '#2a3347' : '#5b8dee'),
           strokeWidth: isActive ? 3.5 : (isDimmed ? 1 : 2.5),

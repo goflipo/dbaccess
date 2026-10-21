@@ -11,7 +11,7 @@ function Sidebar({
   savedConnections, onConnectSaved, onDeleteSaved, onRenameConnection,
   queryHistory, refreshKey, onSelectConnection,
   onNewUsersTab, onNewMetricsTab, onNewCompareTab, onNewBroadcastTab,
-  onDeleteMultipleTables,
+  onDeleteMultipleTables, onDeleteAllTables,
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('dbaccess:sidebarWidth')
@@ -315,6 +315,39 @@ function Sidebar({
       }
     }
     setExpandedTables(next)
+  }
+
+  const handleDownloadConfig = async (connId, isSaved) => {
+    const conn = (isSaved ? savedConnections : connections).find(c => c.id === connId)
+    if (!conn) return
+    const db = (!isSaved && activeDbs[connId]) || conn.database || ''
+    const schemes = { postgres: 'postgresql', mysql: 'mysql', mariadb: 'mysql', clickhouse: 'clickhouse', cockroachdb: 'postgresql', greenplum: 'postgresql', redshift: 'postgresql' }
+    const scheme = schemes[conn.type] || conn.type
+    const enc = encodeURIComponent
+    const auth = conn.username ? `${enc(conn.username)}${conn.password ? ':' + enc(conn.password) : ''}@` : ''
+    const url = conn.connectionString || (conn.host
+      ? `${scheme}://${auth}${conn.host}${conn.port ? ':' + conn.port : ''}${db ? '/' + enc(db) : ''}${conn.ssl ? '?sslmode=require' : ''}`
+      : '')
+    const lines = [
+      `Connection Name : ${conn.name || ''}`,
+      `Type            : ${conn.type || ''}`,
+      `Host            : ${conn.host || ''}`,
+      `Port            : ${conn.port || ''}`,
+      `Database        : ${db}`,
+      `Username        : ${conn.username || ''}`,
+      `Password        : ${conn.password || ''}`,
+      `SSL             : ${conn.ssl ? 'yes' : 'no'}`,
+      '',
+      `Connection URL  : ${url}`,
+      '',
+      '# WARNING: this file contains the password in plain text. Keep it safe.',
+    ]
+    const fileName = `${(conn.name || conn.host || 'connection').replace(/[^\w.-]+/g, '_')}_config.txt`
+    try {
+      await window.dbAccess.saveRawFile(lines.join('\n') + '\n', fileName, [{ name: 'Text File', extensions: ['txt'] }], false)
+    } catch (err) {
+      console.error('Failed to save config:', err)
+    }
   }
 
   const handleContextMenu = (e, connId, isSaved) => {
@@ -814,6 +847,10 @@ function Sidebar({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 Rename Connection
               </button>
+              <button className="context-menu-item" onClick={() => { handleDownloadConfig(contextMenu.connId, contextMenu.isSaved); setContextMenu(null) }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                Download Config
+              </button>
               {!contextMenu.isSaved && (
                 <>
                     <div className="context-menu-divider"></div>
@@ -853,6 +890,11 @@ function Sidebar({
                     <div className="context-menu-divider"></div>
                     <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>Export Database (SQL)...</button>
                     <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>Export Database (CSV)...</button>
+                    <div className="context-menu-divider"></div>
+                    <button className="context-menu-item context-menu-danger" onClick={() => { onDeleteAllTables?.(contextMenu.connId); setContextMenu(null) }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      Delete All Tables...
+                    </button>
                 </>
               )}
               <div className="context-menu-divider"></div>
