@@ -52,8 +52,11 @@ function listProviders() {
 
 function saveAiConfig(provider, apiKey, options = {}) {
   if (!PROVIDERS[provider]) return { success: false, error: 'Unknown provider' };
+  // No new key typed: keep the one already saved for this provider (e.g. only the model changed)
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-    return { success: false, error: 'API key is required' };
+    const existing = loadAiConfig();
+    if (existing?.provider === provider && existing.apiKey) apiKey = existing.apiKey;
+    else return { success: false, error: 'API key is required' };
   }
   const baseUrl = (options.baseUrl || '').trim();
   const model = (options.model || '').trim();
@@ -85,8 +88,169 @@ function loadAiConfig() {
       ? safeStorage.decryptString(Buffer.from(data.key, 'base64'))
       : Buffer.from(data.key, 'base64').toString('utf-8');
     return { provider: data.provider, apiKey, baseUrl: data.baseUrl || '', model: data.model || '' };
-  } catch {
+  } catch (err) {
+    console.error('[ai] Could not load saved AI config:', err.message);
     return null;
+  }
+}
+
+// ── Model lists ─────────────────────────────────────────────────────────────────
+// Live list from the provider when a key is available; otherwise (or if the
+// provider has no /models endpoint) a short suggested list.
+const SUGGESTED_MODELS = {
+  claude:     ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+  openai:     ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini'],
+  gemini:     ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash'],
+  groq:       ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+  mistral:    ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest'],
+  deepseek:   ['deepseek-chat', 'deepseek-reasoner'],
+  xai:        ['grok-2-latest', 'grok-beta'],
+  openrouter: ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet', 'meta-llama/llama-3.3-70b-instruct'],
+  perplexity: ['llama-3.1-sonar-large-128k-online', 'llama-3.1-sonar-small-128k-online'],
+  nvidia:     [], // only models verified against the user's key are shown
+  custom:     [],
+};
+
+// NVIDIA's /models lists retired and not-enabled models too, so for NVIDIA
+// each chat model is probed once with a 1-token request and only the ones that
+// answer are kept (cached on disk until the user hits Refresh again).
+const getModelCacheFile = () => path.join(app.getPath('userData'), 'ai-verified-models.json');
+const NON_CHAT_MODEL = /embed|rerank|guard|safety|topic-control|vision|vlm|vila|neva|clip|parse|video|detector|reward|deplot|fuyu|kosmos|riva|translate|calibration|diffusion|cosmos|retriev|-base\b|starcoder|codellama|recurrentgemma|gemma-2b/i;
+
+function readModelCache() {
+  try { return JSON.parse(fs.readFileSync(getModelCacheFile(), 'utf-8')); } catch { return {}; }
+}
+function writeModelCache(provider, models) {
+  try {
+    const all = readModelCache();
+    all[provider] = { models, checkedAt: new Date().toISOString() };
+    fs.writeFileSync(getModelCacheFile(), JSON.stringify(all), 'utf-8');
+  } catch (err) { console.error('[ai] Could not write model cache:', err.message); }
+}
+
+async function probeChatModels(base, key, ids) {
+  const working = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ids.length) {
+      const id = ids[next++];
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 25000);
+      try {
+        const res = await fetch(`${base.replace(/\/+$/, '')}/chat/completions`, {
+          method: 'POST', signal: ctl.signal,
+          headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ model: id, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+        });
+        // 429 = model exists but we are rate limited right now
+        if (res.ok || res.status === 429) working.push(id);
+      } catch { /* timeout / network: treat as not usable */ }
+      finally { clearTimeout(timer); }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return working.sort();
+}
+
+async function listModels({ provider, apiKey, baseUrl, verify } = {}) {
+  const def = PROVIDERS[provider];
+  if (!def) return { success: false, error: 'Unknown provider', models: [] };
+  const suggested = SUGGESTED_MODELS[provider] || [];
+  const saved = loadAiConfig();
+  const key = apiKey || (saved?.provider === provider ? saved.apiKey : '');
+  const base = provider === 'custom' ? (baseUrl || (saved?.provider === 'custom' ? saved.baseUrl : '')) : def.baseUrl;
+  if (!key || (def.kind === 'openai-compat' && !base)) {
+    return { success: true, models: suggested, source: 'suggested' };
+  }
+  if (provider === 'nvidia' && !verify) {
+    const cached = readModelCache().nvidia;
+    if (cached?.models?.length) return { success: true, models: cached.models, source: 'verified' };
+  }
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    let res, ids;
+    if (def.kind === 'anthropic') {
+      res = await fetch('https://api.anthropic.com/v1/models?limit=1000', {
+        signal: ctl.signal, headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      ids = (data.data || []).map(m => m.id);
+    } else if (def.kind === 'gemini') {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`, { signal: ctl.signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      ids = (data.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => String(m.name).replace(/^models\//, ''));
+    } else {
+      res = await fetch(`${base.replace(/\/+$/, '')}/models`, {
+        signal: ctl.signal, headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || data?.message || `HTTP ${res.status}`);
+      ids = (Array.isArray(data) ? data : data.data || []).map(m => m.id);
+    }
+    ids = [...new Set(ids.filter(Boolean))].sort();
+    // Reached only when forced (verify) or when nothing is cached yet
+    if (provider === 'nvidia') {
+      const candidates = ids.filter(id => !NON_CHAT_MODEL.test(id));
+      const working = await probeChatModels(base, key, candidates);
+      writeModelCache('nvidia', working);
+      return { success: true, models: working, source: 'verified', warning: working.length === 0 ? 'No model answered — check the key' : undefined };
+    }
+    if (ids.length === 0) return { success: true, models: suggested, source: 'suggested' };
+    return { success: true, models: ids, source: 'live' };
+  } catch (err) {
+    return { success: true, models: suggested, source: 'suggested', warning: err.name === 'AbortError' ? 'Timed out fetching models' : err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Sends a 1-token request so a model can be verified against the user's key
+// before they rely on it (catalogs list retired / not-enabled models).
+async function testModel({ provider, apiKey, baseUrl, model } = {}) {
+  const def = PROVIDERS[provider];
+  if (!def) return { success: false, error: 'Unknown provider' };
+  const saved = loadAiConfig();
+  const key = apiKey || (saved?.provider === provider ? saved.apiKey : '');
+  const mdl = model || def.defaultModel;
+  if (!key) return { success: false, error: 'Enter or save an API key first' };
+  if (!mdl) return { success: false, error: 'Select a model first' };
+  const base = provider === 'custom' ? (baseUrl || (saved?.provider === 'custom' ? saved.baseUrl : '')) : def.baseUrl;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+  try {
+    let res;
+    if (def.kind === 'anthropic') {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: mdl, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+      });
+    } else if (def.kind === 'gemini') {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(mdl)}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 1 } }),
+      });
+    } else {
+      if (!base) return { success: false, error: 'Base URL is required' };
+      res = await fetch(`${base.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST', signal: ctl.signal,
+        headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: mdl, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+      });
+    }
+    if (res.ok) return { success: true };
+    const data = await res.json().catch(() => ({}));
+    const detail = data?.error?.message || data?.detail || data?.message || ''
+    return { success: false, error: `HTTP ${res.status}${detail ? ': ' + detail : ''}` };
+  } catch (err) {
+    return { success: false, error: err.name === 'AbortError' ? 'Timed out after 30s' : err.message };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -269,7 +433,9 @@ async function callOpenAiCompatible(baseUrl, apiKey, model, userPrompt, signal, 
   logger.log(`Response status: ${res.status}`)
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data?.error?.message || `API error (${res.status})`)
+    const detail = data?.error?.message || data?.detail || data?.message || ''
+    const hint = res.status === 404 ? ` — model "${model}" was not found on this provider. Pick a model from the dropdown in Settings → AI Assistant (use Refresh to load the live list).` : ''
+    throw new Error(`API error (${res.status})${detail ? ': ' + detail : ''}${hint}`)
   }
   const text = await readSseText(res, logger)
   if (!text) throw new Error('The provider returned an empty response')
@@ -356,4 +522,4 @@ async function generateSql({ prompt, schema, dialect, requestId }) {
   }
 }
 
-module.exports = { listProviders, saveAiConfig, getAiConfigStatus, clearAiConfig, generateSql, cancelGenerate }
+module.exports = { testModel, listModels, listProviders, saveAiConfig, getAiConfigStatus, clearAiConfig, generateSql, cancelGenerate }

@@ -411,9 +411,25 @@ function QueryEditor({
     aiRequestIdRef.current = requestId
     setAiLoading(true); setAiError(''); setAiLogs([])
     try {
+      // The autocomplete schema loads in the background; if it isn't there yet
+      // the model would get no table info, so load it now.
+      let schemaForAi = sqlSchema
+      if (activeConnectionId && Object.keys(schemaForAi || {}).length === 0) {
+        const schemaRes = await window.dbAccess.getSchemaFull(activeConnectionId).catch(() => null)
+        if (schemaRes?.success) {
+          const map = {}
+          for (const t of schemaRes.data?.tables || []) {
+            const cols = (t.columns || []).map(c => c.name)
+            map[t.name] = cols
+            if (t.fullName && t.fullName !== t.name) map[t.fullName] = cols
+          }
+          schemaForAi = map
+          setSqlSchema(map)
+        }
+      }
       const result = await window.dbAccess.ai.generateSql({
         prompt: aiPrompt.trim(),
-        schema: sqlSchema,
+        schema: schemaForAi,
         dialect: dbType || 'sql',
         requestId,
       })

@@ -743,7 +743,32 @@ function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onR
     const cascadeRows = []
     try {
       let sql = 'BEGIN;\n'
-      if (doCascade && fkImpact.length > 0) {
+      let deepCascade = false
+      if (doCascade && window.dbAccess?.getSchemaFull) {
+        // Walk the FK graph so grandchildren go before children, and children before the parent
+        const schemaRes = await window.dbAccess.getSchemaFull(connectionId).catch(() => ({ success: false }))
+        if (schemaRes.success) {
+          const fks = schemaRes.data.foreignKeys || []
+          const quoteFull = (n) => n.split('.').map(part => `"${part}"`).join('.')
+          const stmts = []
+          const walk = (parentFull, whereSql, path) => {
+            fks.filter(fk => fk.targetTable === parentFull && !path.includes(fk.sourceTable)).forEach(fk => {
+              const childWhere = `"${fk.sourceColumn}" IN (SELECT "${fk.targetColumn}" FROM ${quoteFull(parentFull)} WHERE ${whereSql})`
+              walk(fk.sourceTable, childWhere, [...path, fk.sourceTable])
+              stmts.push(`DELETE FROM ${quoteFull(fk.sourceTable)} WHERE ${childWhere};`)
+            })
+          }
+          walk(sourceTable, buildDeleteConditions(rowsToDelete), [sourceTable])
+          sql += stmts.map(st => st + '\n').join('')
+          deepCascade = true
+          fkImpact.forEach(fk => {
+            if (fk.affectedRows?.length > 0) {
+              cascadeRows.push({ tableName: fk.fullTableName, rowCount: fk.affectedCount, rows: fk.affectedRows })
+            }
+          })
+        }
+      }
+      if (doCascade && !deepCascade && fkImpact.length > 0) {
         for (const fk of fkImpact) {
           if (fk.affectedCount === 0) continue
           const srcVals = rowsToDelete.map(r => r[fk.srcColumn]).filter(v => v !== null && v !== undefined)

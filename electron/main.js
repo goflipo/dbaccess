@@ -141,6 +141,14 @@ function registerAiHandlers() {
     return aiManager.listProviders();
   });
 
+  ipcMain.handle('ai:list-models', async (_event, params) => {
+    return await aiManager.listModels(params || {});
+  });
+
+  ipcMain.handle('ai:test-model', async (_event, params) => {
+    return await aiManager.testModel(params || {});
+  });
+
   ipcMain.handle('ai:save-config', (_event, provider, apiKey, options) => {
     return aiManager.saveAiConfig(provider, apiKey, options);
   });

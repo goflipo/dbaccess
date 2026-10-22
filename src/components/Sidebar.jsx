@@ -750,7 +750,23 @@ function Sidebar({
                           <>
                             {baseTables.length > 0 && (
                               <>
-                                <div className="sidebar-objects-section-label">Tables ({baseTables.length})</div>
+                                <div className="sidebar-objects-section-label sidebar-select-all-row">
+                                  <span>Tables ({baseTables.length})</span>
+                                  <button
+                                    className="sidebar-select-all-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const allSelected = baseTables.every(t => isTableSelected(conn.id, t.fullName))
+                                      setSelectedTables(prev => {
+                                        const next = new Set(prev[conn.id] || [])
+                                        baseTables.forEach(t => allSelected ? next.delete(t.fullName) : next.add(t.fullName))
+                                        return { ...prev, [conn.id]: next }
+                                      })
+                                    }}
+                                  >
+                                    {baseTables.every(t => isTableSelected(conn.id, t.fullName)) ? 'Deselect all' : 'Select all'}
+                                  </button>
+                                </div>
                                 {baseTables.map(renderTableRow)}
                               </>
                             )}
@@ -771,6 +787,9 @@ function Sidebar({
                     {getSelectionCount(conn.id) > 0 && (
                       <div className="sidebar-selection-bar">
                         <span className="sidebar-sel-count">{getSelectionCount(conn.id)} selected</span>
+                        <button className="sidebar-sel-delete" onClick={() => { onTruncateTable?.(conn.id, [...selectedTables[conn.id]]); clearSelection(conn.id) }}>
+                          Truncate {getSelectionCount(conn.id)}
+                        </button>
                         <button className="sidebar-sel-clear" onClick={() => clearSelection(conn.id)}>Clear</button>
                         <button className="sidebar-sel-delete" onClick={() => { onDeleteMultipleTables(conn.id, [...selectedTables[conn.id]]); clearSelection(conn.id) }}>
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1011,9 +1030,15 @@ function Sidebar({
               }}>Clone...</button>
 
               <button className="context-menu-item context-menu-danger" onClick={() => {
-                onTruncateTable?.(contextMenu.connId, contextMenu.tableName)
+                const multi = isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1
+                onTruncateTable?.(contextMenu.connId, multi ? [...selectedTables[contextMenu.connId]] : [contextMenu.tableName])
+                if (multi) clearSelection(contextMenu.connId)
                 setContextMenu(null)
-              }}>Truncate...</button>
+              }}>
+                {isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1
+                  ? `Truncate ${getSelectionCount(contextMenu.connId)} tables...`
+                  : 'Truncate...'}
+              </button>
               
               {isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1 ? (
                 <button className="context-menu-item context-menu-danger" onClick={() => {

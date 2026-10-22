@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('dbAccess', {
   // --- AI assistant (natural-language-to-SQL) ---
   ai: {
     listProviders: ()                        => ipcRenderer.invoke('ai:list-providers'),
+    listModels:    (params)                  => ipcRenderer.invoke('ai:list-models', params),
+    testModel:     (params)                  => ipcRenderer.invoke('ai:test-model', params),
     saveConfig:    (provider, apiKey, options) => ipcRenderer.invoke('ai:save-config', provider, apiKey, options),
     getStatus:     ()                        => ipcRenderer.invoke('ai:get-config-status'),
     clearConfig:   ()                        => ipcRenderer.invoke('ai:clear-config'),

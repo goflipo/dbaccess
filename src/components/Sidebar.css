@@ -648,3 +648,11 @@
 .sidebar-table.table-pinned .sidebar-table-main {
   padding-left: 4px;
 }
+
+.sidebar-select-all-row { display: flex; align-items: center; justify-content: space-between; }
+.sidebar-select-all-btn {
+  background: none; border: none; padding: 0 4px;
+  color: var(--accent-primary-hover); font-size: 10px; font-weight: 500;
+  text-transform: none; letter-spacing: 0; cursor: pointer;
+}
+.sidebar-select-all-btn:hover { text-decoration: underline; }

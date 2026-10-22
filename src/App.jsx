@@ -22,6 +22,7 @@ import DeleteHistoryPanel from './components/DeleteHistoryPanel'
 import DeleteConfirmModal from './components/DeleteConfirmModal'
 import AppTour from './components/AppTour'
 import SqlFileProgress from './components/SqlFileProgress'
+import TruncateTablesModal from './components/TruncateTablesModal'
 import DropTableModal from './components/DropTableModal'
 import ActivationScreen from './components/ActivationScreen'
 import './App.css'
@@ -99,7 +100,7 @@ function MainApp() {
     } catch { return [] }
   })
   const [showDeleteHistory, setShowDeleteHistory] = useState(false)
-  const [truncatePending, setTruncatePending] = useState(null) // { connId, tableName, fkImpact, isLoading }
+  const [truncatePending, setTruncatePending] = useState(null) // { connId, tableNames, affected, isLoading }
   const [dropTablePending, setDropTablePending] = useState(null) // { connId, tableNames: string[] }
   const [sqlFileExecution, setSqlFileExecution] = useState(null) // progress state for streaming SQL file execution
 
@@ -828,46 +829,77 @@ function MainApp() {
     }
   }, [dropTablePending, connections, showStatus])
 
-  const handleTruncateTable = useCallback(async (connId, tableName) => {
-    // Show modal with FK impact check
-    setTruncatePending({ connId, tableName, fkImpact: [], isLoading: true })
-    if (window.dbAccess?.getFkImpact) {
-      const res = await window.dbAccess.getFkImpact(connId, tableName, []).catch(() => ({ success: false }))
-      setTruncatePending({ connId, tableName, fkImpact: res.success ? (res.data || []) : [], isLoading: false })
-    } else {
-      setTruncatePending(prev => prev ? { ...prev, isLoading: false } : prev)
-    }
+  const handleTruncateTable = useCallback(async (connId, tableNames) => {
+    const names = Array.isArray(tableNames) ? tableNames : [tableNames]
+    setTruncatePending({ connId, tableNames: names, affected: [], isLoading: true })
+    let affected = []
+    try {
+      const res = await window.dbAccess.getSchemaFull(connId)
+      if (res.success) {
+        // Tables that reference the selection, directly or transitively, would be emptied by CASCADE
+        const reached = new Set(names)
+        let grew = true
+        while (grew) {
+          grew = false
+          res.data.foreignKeys.forEach(fk => {
+            if (reached.has(fk.targetTable) && !reached.has(fk.sourceTable)) {
+              reached.add(fk.sourceTable)
+              grew = true
+            }
+          })
+        }
+        affected = [...reached].filter(t => !names.includes(t))
+      }
+    } catch { /* dependency list is informational */ }
+    setTruncatePending(prev => prev ? { ...prev, affected, isLoading: false } : prev)
   }, [])
 
-  const handleConfirmTruncate = useCallback(async () => {
+  const handleConfirmTruncate = useCallback(async ({ cascade, restartIdentity }) => {
     if (!truncatePending) return
-    const { connId, tableName } = truncatePending
+    const { connId, tableNames } = truncatePending
     setTruncatePending(null)
+    const connType = connections.find(c => c.id === connId)?.type || 'postgres'
+    const isMysqlWire = ['mysql', 'mariadb'].includes(connType)
+    const isPgWire = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connType)
+    const label = tableNames.length === 1 ? tableNames[0] : `${tableNames.length} tables`
     try {
-      showStatus(`Truncating ${tableName}...`, 'info')
-      const result = await window.dbAccess.executeQuery(connId, `TRUNCATE TABLE ${tableName};`)
-      if (result.success) {
-        showStatus(`Table ${tableName} truncated`, 'success')
-        // Log to history (no row data for truncate)
-        handleSaveDeleteHistory({
-          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          timestamp: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          connectionId: connId,
-          connectionName: connections.find(c => c.id === connId)?.name || '',
-          tableName,
-          operation: 'truncate',
-          rowCount: 0,
-          rows: [],
-          cascadeRows: [],
-          cascadeRowCount: 0,
-          restorable: false,
-        })
+      showStatus(`Truncating ${label}...`, 'info')
+      let statements
+      if (isPgWire) {
+        // One statement keeps the whole batch atomic and lets selected tables reference each other
+        statements = [`TRUNCATE TABLE ${tableNames.join(', ')}${restartIdentity ? ' RESTART IDENTITY' : ''}${cascade ? ' CASCADE' : ''};`]
       } else {
-        showStatus(`Truncate failed: ${result.error}`, 'error')
+        statements = tableNames.map(t => `TRUNCATE TABLE ${t};`)
       }
+      if (isMysqlWire && cascade) await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 0;')
+      let failure = null
+      for (const sql of statements) {
+        const result = await window.dbAccess.executeQuery(connId, sql)
+        if (!result.success) { failure = result.error; break }
+      }
+      if (isMysqlWire && cascade) await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;').catch(() => {})
+      if (failure) {
+        showStatus(`Truncate failed: ${failure}`, 'error')
+        return
+      }
+      showStatus(`${label} truncated`, 'success')
+      tableNames.forEach(tableName => handleSaveDeleteHistory({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        timestamp: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        connectionId: connId,
+        connectionName: connections.find(c => c.id === connId)?.name || '',
+        tableName,
+        operation: 'truncate',
+        rowCount: 0,
+        rows: [],
+        cascadeRows: [],
+        cascadeRowCount: 0,
+        restorable: false,
+      }))
+      setSidebarRefreshKey(prev => prev + 1)
     } catch (err) {
-      showStatus(`Error truncating table: ${err.message}`, 'error')
+      showStatus(`Error truncating: ${err.message}`, 'error')
     }
   }, [truncatePending, showStatus, connections, handleSaveDeleteHistory])
 
@@ -1325,12 +1357,11 @@ function MainApp() {
 
       {/* Truncate Confirmation Modal */}
       {truncatePending && (
-        <DeleteConfirmModal
-          mode="truncate"
-          tableName={truncatePending.tableName}
-          rows={[]}
-          fkImpact={truncatePending.fkImpact}
+        <TruncateTablesModal
+          tables={truncatePending.tableNames}
+          affected={truncatePending.affected}
           isLoading={truncatePending.isLoading}
+          connectionType={connections.find(c => c.id === truncatePending.connId)?.type || 'postgres'}
           onConfirm={handleConfirmTruncate}
           onCancel={() => setTruncatePending(null)}
         />
