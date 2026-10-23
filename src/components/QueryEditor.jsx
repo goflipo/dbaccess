@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { StateEffect, StateField } from '@codemirror/state'
-import { Decoration, EditorView } from '@codemirror/view'
+import { StateEffect, StateField, Prec } from '@codemirror/state'
+import { Decoration, EditorView, keymap } from '@codemirror/view'
+import { acceptCompletion } from '@codemirror/autocomplete'
 import {
   search, SearchQuery, setSearchQuery,
   findNext as cmFindNext, findPrevious as cmFindPrev,
@@ -214,15 +215,18 @@ const extractParams = (query) => {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function QueryEditor({
+function QueryEditor({
   value, onChange, onRun, onExport, onImport, isRunning,
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
+  theme: appTheme = 'dark', fillHeight = false, dbType,
+  aiChatOpen = false, onToggleAiChat,
 }) {
   const [editorHeight, setEditorHeight] = useState(220)
   const [showImportInput, setShowImportInput] = useState(false)
   const [importTable, setImportTable] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
+  const [errorCopied, setErrorCopied] = useState(false)
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -234,6 +238,7 @@ export default function QueryEditor({
   const [showParamsPanel, setShowParamsPanel] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
   const [errorDismissed, setErrorDismissed] = useState(false)
+  const [sqlSchema, setSqlSchema] = useState({})
   const editorViewRef = useRef(null)
   const findInputRef = useRef(null)
   const selTimerRef = useRef(null)
@@ -270,6 +275,24 @@ export default function QueryEditor({
   }, [queryError, errorDismissed])
 
   const suggestion = queryError ? findSuggestion(queryError.message) : null
+
+  // Load table/column names for the active connection so the SQL editor can
+  // suggest them (CodeMirror's sql() extension takes a flat {name: [cols]} map).
+  useEffect(() => {
+    if (!activeConnectionId) { setSqlSchema({}); return }
+    let cancelled = false
+    window.dbAccess.getSchemaFull(activeConnectionId).then((result) => {
+      if (cancelled || !result?.success) return
+      const map = {}
+      for (const t of result.data?.tables || []) {
+        const cols = (t.columns || []).map(c => c.name)
+        map[t.name] = cols
+        if (t.fullName && t.fullName !== t.name) map[t.fullName] = cols
+      }
+      setSqlSchema(map)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [activeConnectionId])
 
   // Auto-show params panel when params detected
   useEffect(() => {
@@ -375,6 +398,12 @@ export default function QueryEditor({
     onChange(minified)
   }
 
+  const copyErrorText = (text, setCopied) => {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
   const toggleComment = () => {
     if (!editorViewRef.current) return
     const state = editorViewRef.current.state
@@ -390,8 +419,9 @@ export default function QueryEditor({
     onChange(newValue.join('\n'))
   }
 
-  const clearEditor = () => {
-    if (window.confirm('Clear all SQL code?')) onChange('')
+  const clearEditor = async () => {
+    const ok = await window.dbAccess.confirm({ title: 'Clear Editor', message: 'Clear all SQL code?' })
+    if (ok) onChange('')
   }
 
   const buildQuery = () => new SearchQuery({
@@ -446,16 +476,20 @@ export default function QueryEditor({
     document.addEventListener('mouseup', onUp)
   }
 
-  // CodeMirror extensions — static so they aren't recreated on every render
+  // CodeMirror extensions — rebuilt only when the schema (table/column list) changes
   const cmExtensions = useMemo(() => [
-    sql(),
+    sql({ schema: sqlSchema, upperCaseKeywords: true }),
     errorHighlightField,
     errorTheme,
     search(),
-  ], [])
+    Prec.highest(keymap.of([{ key: 'Tab', run: acceptCompletion }])),
+  ], [sqlSchema])
 
   return (
-    <div className="query-editor" data-tour="query-editor" onKeyDown={handleKeyDown} style={{ height: editorHeight, minHeight: 80 }}>
+    <div
+      className="query-editor" data-tour="query-editor" onKeyDown={handleKeyDown}
+      style={fillHeight ? { flex: 1, minHeight: 80 } : { height: editorHeight, minHeight: 80 }}
+    >
       <div className="editor-toolbar" onMouseDown={e => {
         if (!e.target.matches('input, textarea, select')) e.preventDefault()
       }}>
@@ -493,6 +527,19 @@ export default function QueryEditor({
             <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
           </svg>
           Explain
+        </button>
+
+        {/* Ask AI */}
+        <button
+          className={`toolbar-btn-sm ai-ask-btn ${aiChatOpen ? 'active' : ''}`}
+          onClick={() => onToggleAiChat?.()}
+          title="Ask AI to write a query from a description"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 3l1.9 4.8L19 9.5l-4.8 1.7L12 16l-1.9-4.8L5 9.5l4.8-1.7L12 3z"/>
+            <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/>
+          </svg>
+          Ask AI
         </button>
 
         <div className="toolbar-sep"></div>
@@ -698,6 +745,17 @@ export default function QueryEditor({
               <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
             </svg>
             <span className="error-suggestion-msg">{queryError.message}</span>
+            <button
+              className="error-suggestion-dismiss"
+              onClick={() => copyErrorText(queryError.message, setErrorCopied)}
+              title="Copy error message"
+            >
+              {errorCopied ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              )}
+            </button>
             <button className="error-suggestion-dismiss" onClick={() => setErrorDismissed(true)} title="Dismiss">✕</button>
           </div>
           {suggestion && (
@@ -739,7 +797,7 @@ export default function QueryEditor({
           value={value}
           height="100%"
           style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
-          theme={oneDark}
+          theme={appTheme === 'dark' ? oneDark : 'light'}
           extensions={cmExtensions}
           onChange={onChange}
           onCreateEditor={(view) => { editorViewRef.current = view }}
@@ -764,9 +822,11 @@ export default function QueryEditor({
           }}
         />
       </div>
-      <div className="editor-resize" onMouseDown={startResize}>
+      {!fillHeight && <div className="editor-resize" onMouseDown={startResize}>
         <div className="editor-resize-handle"></div>
-      </div>
+      </div>}
     </div>
   )
 }
+
+export default React.memo(QueryEditor)

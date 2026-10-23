@@ -1,29 +1,37 @@
 :root {
-  --bg-primary: #0d1017;
-  --bg-secondary: #151921;
-  --bg-surface: #1a1f2e;
-  --bg-elevated: #212738;
-  --bg-hover: #262d40;
-  --bg-active: #2c3548;
-  --border-subtle: #1e2536;
-  --border-default: #2a3247;
-  --border-strong: #3a445c;
-  --text-primary: #e4e8f1;
-  --text-secondary: #8891a8;
-  --text-tertiary: #5c6478;
-  --accent-primary: #6c7bf7;
-  --accent-primary-hover: #818ef9;
-  --accent-primary-bg: rgba(108, 123, 247, 0.12);
-  --accent-green: #3dd68c;
-  --accent-green-bg: rgba(61, 214, 140, 0.12);
-  --accent-red: #f76c6c;
-  --accent-red-bg: rgba(247, 108, 108, 0.12);
-  --accent-yellow: #f7c948;
-  --accent-yellow-bg: rgba(247, 201, 72, 0.12);
-  --accent-cyan: #4ecdc4;
-  --accent-purple: #a78bfa;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --bg-primary: #131313;
+  --bg-secondary: #171717;
+  --bg-tertiary: #1a1a1a;
+  --bg-surface: #1e1e1e;
+  --bg-elevated: #232323;
+  --bg-hover: #282828;
+  --bg-active: #313131;
+  --border-subtle: #202020;
+  --border-default: #2a2a2a;
+  --border-strong: #3a3a3a;
+  --border: var(--border-default);
+  --text-primary: #e6e6e6;
+  --text-secondary: #96969a;
+  --text-tertiary: #67676b;
+  --text-muted: var(--text-tertiary);
+  --accent-primary: #4a90e2;
+  --accent-primary-hover: #62a1ea;
+  --accent-primary-bg: rgba(74, 144, 226, 0.14);
+  --accent-primary-rgb: 74, 144, 226;
+  --accent-blue: var(--accent-primary);
+  --accent: var(--accent-primary);
+  --accent-rgb: var(--accent-primary-rgb);
+  --accent-green: #3ecf8e;
+  --accent-green-bg: rgba(62, 207, 142, 0.12);
+  --accent-red: #f0655f;
+  --accent-red-bg: rgba(240, 101, 95, 0.12);
+  --accent-yellow: #e8b84b;
+  --accent-yellow-bg: rgba(232, 184, 75, 0.12);
+  --accent-cyan: #4fc3bf;
+  --accent-teal: #45c1b8;
+  --accent-purple: #9a8cf0;
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'JetBrains Mono', 'Fira Code', monospace;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -31,50 +39,94 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
   --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
+  --transition-normal: 200ms ease;
   --sidebar-width: 260px;
   --titlebar-height: 38px;
   --statusbar-height: 28px;
   --tabbar-height: 38px;
+  --app-font-size: 13px;
+  --app-font-weight: 400;
+  --app-font-style: normal;
 }
 
 /* Light theme overrides */
 [data-theme="light"] {
-  --bg-primary: #f5f7fa;
-  --bg-secondary: #edf0f5;
-  --bg-surface: #e4e8f0;
-  --bg-elevated: #dce1ec;
-  --bg-hover: #d4d9e8;
-  --bg-active: #c9cedf;
-  --border-subtle: #d8dde8;
-  --border-default: #c5ccd9;
-  --border-strong: #adb5c7;
-  --text-primary: #1a2038;
-  --text-secondary: #4a5370;
-  --text-tertiary: #7a82a0;
-  --accent-primary: #4a5af0;
-  --accent-primary-hover: #3948e0;
-  --accent-primary-bg: rgba(74, 90, 240, 0.10);
-  --accent-green: #1da868;
-  --accent-green-bg: rgba(29, 168, 104, 0.10);
-  --accent-red: #e03c3c;
-  --accent-red-bg: rgba(224, 60, 60, 0.10);
-  --accent-yellow: #c8960a;
-  --accent-yellow-bg: rgba(200, 150, 10, 0.10);
-  --accent-cyan: #0e9d96;
-  --accent-purple: #7c5cf0;
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
+  /* Neutral light palette: white work area, soft grey chrome, no blue tint */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f7f9;
+  --bg-tertiary: #f0f2f5;
+  --bg-surface: #eceef2;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e8ebf0;
+  --bg-active: #dde2ea;
+  --border-subtle: #e6e9ee;
+  --border-default: #d5dae2;
+  --border-strong: #b9c0cc;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --text-tertiary: #000000;
+  --text-muted: var(--text-tertiary);
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #1d4fd0;
+  --accent-primary-bg: rgba(37, 99, 235, 0.09);
+  --accent-primary-rgb: 37, 99, 235;
+  --accent-blue: var(--accent-primary);
+  --accent-green: #15915a;
+  --accent-green-bg: rgba(21, 145, 90, 0.10);
+  --accent-red: #d03a34;
+  --accent-red-bg: rgba(208, 58, 52, 0.09);
+  --accent-yellow: #b7860b;
+  --accent-yellow-bg: rgba(183, 134, 11, 0.12);
+  --accent-cyan: #0c8f89;
+  --accent-teal: #0c8f89;
+  --accent-purple: #6d4fe0;
+  --shadow-md: 0 2px 8px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 8px 28px rgba(16, 24, 40, 0.12);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: var(--border-strong); }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
+/* Accent color presets — override the accent hue set by the theme above,
+   independent of dark/light so a color choice stays consistent across themes. */
+[data-accent="blue"] {
+  --accent-primary: #4a90e2; --accent-primary-hover: #62a1ea;
+  --accent-primary-bg: rgba(74, 144, 226, 0.14); --accent-primary-rgb: 74, 144, 226;
+}
+[data-accent="green"] {
+  --accent-primary: #2fae6c; --accent-primary-hover: #3ecf8e;
+  --accent-primary-bg: rgba(47, 174, 108, 0.14); --accent-primary-rgb: 47, 174, 108;
+}
+[data-accent="purple"] {
+  --accent-primary: #9a8cf0; --accent-primary-hover: #ab9ff5;
+  --accent-primary-bg: rgba(154, 140, 240, 0.16); --accent-primary-rgb: 154, 140, 240;
+}
+[data-accent="orange"] {
+  --accent-primary: #e8974b; --accent-primary-hover: #eda868;
+  --accent-primary-bg: rgba(232, 151, 75, 0.16); --accent-primary-rgb: 232, 151, 75;
+}
+[data-accent="red"] {
+  --accent-primary: #e2574a; --accent-primary-hover: #e97267;
+  --accent-primary-bg: rgba(226, 87, 74, 0.14); --accent-primary-rgb: 226, 87, 74;
+}
+[data-accent="teal"] {
+  --accent-primary: #2fa9a3; --accent-primary-hover: #4fc3bf;
+  --accent-primary-bg: rgba(47, 169, 163, 0.14); --accent-primary-rgb: 47, 169, 163;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+*, *::before, *::after { user-select: none; }
+input, textarea, [contenteditable="true"], .cm-editor, .cm-editor * {
+  user-select: text;
+}
+
+img { -webkit-user-drag: none; }
 
 html, body {
   height: 100%; width: 100%; overflow: hidden;
-  font-family: var(--font-sans); font-size: 13px;
+  font-family: var(--font-sans); font-size: var(--app-font-size);
+  font-weight: var(--app-font-weight); font-style: var(--app-font-style);
   color: var(--text-primary); background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
 }
@@ -87,11 +139,34 @@ html, body {
 
 ::selection { background: var(--accent-primary-bg); color: var(--accent-primary); }
 
-input, textarea, select { font-family: var(--font-sans); font-size: 13px; }
-button { font-family: var(--font-sans); cursor: pointer; border: none; background: none; color: inherit; font-size: 13px; }
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+input, textarea, select {
+  font-family: var(--font-sans); font-size: var(--app-font-size);
+  font-weight: var(--app-font-weight); font-style: var(--app-font-style);
+}
+button {
+  font-family: var(--font-sans); cursor: pointer; border: none; background: none; color: inherit;
+  font-size: var(--app-font-size); font-weight: var(--app-font-weight); font-style: var(--app-font-style);
+}
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Light theme: table names are pure black everywhere */
+[data-theme="light"] .sidebar-table-main,
+[data-theme="light"] .sidebar-table-name,
+[data-theme="light"] .sidebar-col-name,
+[data-theme="light"] .dbcompare-data-tablename,
+[data-theme="light"] .dbcompare-table-name,
+[data-theme="light"] .dhp-table-name,
+[data-theme="light"] .erd-table-name,
+[data-theme="light"] .metrics-table-name { color: #000000 !important; }

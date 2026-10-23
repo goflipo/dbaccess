@@ -170,7 +170,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 160px;
+  max-height: 280px;
   overflow-y: auto;
 }
 
@@ -194,9 +194,8 @@
   font-family: monospace;
   font-size: 10.5px;
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* Actions */
@@ -232,3 +231,14 @@
   color: white;
 }
 .sqlfp-close-btn:hover { opacity: 0.9; }
+
+/* Error text must be selectable/copyable (the app disables selection globally) */
+.sqlfp-errors-list, .sqlfp-errors-list * { user-select: text; cursor: text; }
+.sqlfp-errors-list button { user-select: none; cursor: pointer; }
+.sqlfp-error-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.sqlfp-error-copy, .sqlfp-errors-tools button {
+  flex-shrink: 0; padding: 2px 8px; font-size: 10.5px; font-weight: 600; border-radius: 5px; cursor: pointer;
+  background: none; color: var(--text-secondary); border: 1px solid var(--border-default);
+}
+.sqlfp-error-copy:hover, .sqlfp-errors-tools button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sqlfp-errors-tools { display: flex; gap: 6px; }

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useTransition } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useTransition } from 'react'
 import './Sidebar.css'
 
-export default function Sidebar({
+function Sidebar({
   connections, activeConnectionId,
   onNewConnection, onToggle, collapsed,
   onTableClick, onDisconnect, onDeleteConnection,
@@ -11,7 +11,7 @@ export default function Sidebar({
   savedConnections, onConnectSaved, onDeleteSaved, onRenameConnection,
   queryHistory, refreshKey, onSelectConnection,
   onNewUsersTab, onNewMetricsTab, onNewCompareTab, onNewBroadcastTab,
-  onDeleteMultipleTables,
+  onDeleteMultipleTables, onDeleteAllTables,
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('dbaccess:sidebarWidth')
@@ -79,9 +79,13 @@ export default function Sidebar({
   const [expandedConns, setExpandedConns] = useState(new Set())
   const [contextMenu, setContextMenu] = useState(null)
   const [renamingConn, setRenamingConn] = useState(null)
-  const [filterText, setFilterText] = useState('')
+  // Table filter is remembered per connection/database, so switching
+  // databases doesn't carry the previous one's search over.
+  const [filterTexts, setFilterTexts] = useState({})
   const [viewMode, setViewMode] = useState('items')
   const [historySearch, setHistorySearch] = useState('')
+  const [favorites, setFavorites] = useState([])
+  const [favoritesSearch, setFavoritesSearch] = useState('')
   const [isPending, startTransition] = useTransition()
   // Internally loaded tables per connection
   const [tables, setTables] = useState({})
@@ -102,6 +106,20 @@ export default function Sidebar({
   })
   const [menuPos, setMenuPos] = useState({ top: -9999, left: -9999 })
   const menuRef = useRef(null)
+  const [openSubmenu, setOpenSubmenu] = useState(null)
+  const submenuRef = useRef(null)
+  const [submenuStyle, setSubmenuStyle] = useState({})
+
+  // Flip the open context-menu submenu up/left when it would otherwise overflow the window
+  useLayoutEffect(() => {
+    if (!openSubmenu || !submenuRef.current) { setSubmenuStyle({}); return }
+    const rect = submenuRef.current.getBoundingClientRect()
+    const MARGIN = 8
+    const style = {}
+    if (rect.bottom > window.innerHeight - MARGIN) { style.top = 'auto'; style.bottom = -4 }
+    if (rect.right > window.innerWidth - MARGIN) { style.left = 'auto'; style.right = '100%' }
+    setSubmenuStyle(style)
+  }, [openSubmenu])
   // Multi-table selection: { connId: Set<fullTableName> }
   const [selectedTables, setSelectedTables] = useState({})
   // Anchor for shift-click range selection: { connId: fullName }
@@ -188,6 +206,25 @@ export default function Sidebar({
     const handleClickOutside = () => { setContextMenu(null); setShowDbPicker({}) }
     window.addEventListener('click', handleClickOutside)
     return () => window.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  // Close any open flyout submenu whenever the context menu itself opens/closes
+  useEffect(() => { setOpenSubmenu(null) }, [contextMenu])
+
+  // Load saved query favorites when the Queries tab is opened
+  useEffect(() => {
+    if (viewMode !== 'queries' || !window.dbAccess) return
+    let cancelled = false
+    window.dbAccess.getFavorites().then(result => {
+      if (!cancelled && result.success) setFavorites(result.data)
+    })
+    return () => { cancelled = true }
+  }, [viewMode])
+
+  const handleDeleteFavorite = useCallback(async (e, id) => {
+    e.stopPropagation()
+    await window.dbAccess.deleteFavorite(id)
+    setFavorites(prev => prev.filter(f => f.id !== id))
   }, [])
 
   // Load database list and then tables for a connection
@@ -280,6 +317,39 @@ export default function Sidebar({
     setExpandedTables(next)
   }
 
+  const handleDownloadConfig = async (connId, isSaved) => {
+    const conn = (isSaved ? savedConnections : connections).find(c => c.id === connId)
+    if (!conn) return
+    const db = (!isSaved && activeDbs[connId]) || conn.database || ''
+    const schemes = { postgres: 'postgresql', mysql: 'mysql', mariadb: 'mysql', clickhouse: 'clickhouse', cockroachdb: 'postgresql', greenplum: 'postgresql', redshift: 'postgresql' }
+    const scheme = schemes[conn.type] || conn.type
+    const enc = encodeURIComponent
+    const auth = conn.username ? `${enc(conn.username)}${conn.password ? ':' + enc(conn.password) : ''}@` : ''
+    const url = conn.connectionString || (conn.host
+      ? `${scheme}://${auth}${conn.host}${conn.port ? ':' + conn.port : ''}${db ? '/' + enc(db) : ''}${conn.ssl ? '?sslmode=require' : ''}`
+      : '')
+    const lines = [
+      `Connection Name : ${conn.name || ''}`,
+      `Type            : ${conn.type || ''}`,
+      `Host            : ${conn.host || ''}`,
+      `Port            : ${conn.port || ''}`,
+      `Database        : ${db}`,
+      `Username        : ${conn.username || ''}`,
+      `Password        : ${conn.password || ''}`,
+      `SSL             : ${conn.ssl ? 'yes' : 'no'}`,
+      '',
+      `Connection URL  : ${url}`,
+      '',
+      '# WARNING: this file contains the password in plain text. Keep it safe.',
+    ]
+    const fileName = `${(conn.name || conn.host || 'connection').replace(/[^\w.-]+/g, '_')}_config.txt`
+    try {
+      await window.dbAccess.saveRawFile(lines.join('\n') + '\n', fileName, [{ name: 'Text File', extensions: ['txt'] }], false)
+    } catch (err) {
+      console.error('Failed to save config:', err)
+    }
+  }
+
   const handleContextMenu = (e, connId, isSaved) => {
     e.preventDefault()
     setContextMenu({ mouseX: e.clientX, mouseY: e.clientY, type: 'connection', connId, isSaved })
@@ -320,6 +390,30 @@ export default function Sidebar({
     return new Date(ts).toLocaleDateString()
   }
 
+  // With 2+ connections, a card rail on the left lets you switch which one
+  // the main panel is focused on, instead of stacking every connection's
+  // table tree in one long scrolling list.
+  const showConnRail = connections.length >= 2
+  const focusedConnId = showConnRail
+    ? (connections.some(c => c.id === activeConnectionId) ? activeConnectionId : connections[0]?.id)
+    : null
+  const filterKey = focusedConnId || connections[0]?.id || '__none__'
+  const filterText = filterTexts[filterKey] || ''
+  const setFilterText = (v) => setFilterTexts(prev => ({ ...prev, [filterKey]: v }))
+
+  // Jumping to a connection via the rail should land straight on its table
+  // tree, without a separate click to expand it.
+  // NOTE: this hook must run on every render (kept above the `collapsed`
+  // early-return below) — conditionally skipping it violates the Rules of
+  // Hooks and crashes the whole sidebar when the collapsed state toggles.
+  useEffect(() => {
+    if (collapsed || !showConnRail || !focusedConnId) return
+    setExpandedConns(prev => prev.has(focusedConnId) ? prev : new Set(prev).add(focusedConnId))
+    if (!tables[focusedConnId] && !loadingTables[focusedConnId]) {
+      loadTablesForConnection(focusedConnId)
+    }
+  }, [collapsed, showConnRail, focusedConnId])
+
   if (collapsed) {
     return (
       <div className="sidebar sidebar-collapsed">
@@ -336,10 +430,33 @@ export default function Sidebar({
   return (
     <div className="sidebar" data-tour="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
       <div className="sidebar-resize-handle" onMouseDown={handleResizeStart} title="Drag to resize sidebar" />
+      {showConnRail && (
+        <div className="sidebar-conn-rail">
+          {connections.map(conn => (
+            <button
+              key={conn.id}
+              className={`conn-rail-card ${conn.id === focusedConnId ? 'active' : ''}`}
+              onClick={() => onSelectConnection(conn.id)}
+              onContextMenu={(e) => handleContextMenu(e, conn.id, false)}
+              title={conn.name || conn.host}
+            >
+              <span className={`conn-rail-dot ${conn.connected ? 'connected' : ''}`}></span>
+              <span className="conn-rail-icon">{dbIcon(conn.type)}</span>
+              <span className="conn-rail-name">{conn.name || conn.host}</span>
+              <span className="conn-rail-db">{activeDbs[conn.id] ? `db : ${activeDbs[conn.id]}` : (conn.type === 'postgres' ? 'PostgreSQL' : conn.type === 'mysql' ? 'MySQL' : 'ClickHouse')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="sidebar-main">
       <div className="sidebar-mode-toggle">
         <button className={`mode-btn ${viewMode === 'items' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('items'))}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
           Items
+        </button>
+        <button className={`mode-btn ${viewMode === 'queries' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('queries'))}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Queries
         </button>
         <button className={`mode-btn ${viewMode === 'history' ? 'active' : ''}`} onClick={() => startTransition(() => setViewMode('history'))}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -347,7 +464,7 @@ export default function Sidebar({
         </button>
       </div>
       <div className="sidebar-header">
-        <span className="sidebar-label">{viewMode === 'items' ? 'CONNECTIONS' : 'RECENT QUERIES'}</span>
+        <span className="sidebar-label">{viewMode === 'items' ? 'CONNECTIONS' : viewMode === 'queries' ? 'SAVED QUERIES' : 'RECENT QUERIES'}</span>
         <div className="sidebar-header-actions">
           {viewMode === 'items' && (
             <>
@@ -367,17 +484,37 @@ export default function Sidebar({
 
       <div className="sidebar-content">
         <div className="sidebar-filter-wrapper">
-          <input 
-            type="text" 
-            className="sidebar-filter-input" 
-            placeholder={viewMode === 'items' ? "Filter tables..." : "Search history..."} 
-            value={viewMode === 'items' ? filterText : historySearch}
-            onChange={e => viewMode === 'items' ? setFilterText(e.target.value) : setHistorySearch(e.target.value)}
+          <input
+            type="text"
+            className="sidebar-filter-input"
+            placeholder={viewMode === 'items' ? "Filter tables..." : viewMode === 'queries' ? "Search queries..." : "Search history..."}
+            value={viewMode === 'items' ? filterText : viewMode === 'queries' ? favoritesSearch : historySearch}
+            onChange={e => viewMode === 'items' ? setFilterText(e.target.value) : viewMode === 'queries' ? setFavoritesSearch(e.target.value) : setHistorySearch(e.target.value)}
           />
-          {(filterText || historySearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterText(''); setHistorySearch(''); }}>✕</button>}
+          {(filterText || historySearch || favoritesSearch) && <button className="sidebar-filter-clear" onClick={() => { setFilterTexts(prev => ({ ...prev, [filterKey]: '' })); setHistorySearch(''); setFavoritesSearch('') }}>✕</button>}
         </div>
 
-        {viewMode === 'history' ? (
+        {viewMode === 'queries' ? (
+          <div className="sidebar-history-list">
+            {favorites
+              .filter(f => f.name.toLowerCase().includes(favoritesSearch.toLowerCase()) || f.sql.toLowerCase().includes(favoritesSearch.toLowerCase()))
+              .map(f => (
+                <div key={f.id} className="history-item" onClick={() => onNewTab && onNewTab(null, f.sql, f.connectionName)}>
+                  <div className="history-item-header">
+                    <span className="history-conn">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--accent-yellow)" stroke="var(--accent-yellow)" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                      {f.name}
+                    </span>
+                    <button className="sidebar-delete-btn" onClick={(e) => handleDeleteFavorite(e, f.id)} title="Delete favorite">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                  <div className="history-sql">{f.sql}</div>
+                </div>
+              ))}
+            {favorites.length === 0 && <div className="sidebar-empty">No saved queries yet</div>}
+          </div>
+        ) : viewMode === 'history' ? (
           <div className="sidebar-history-list">
             {queryHistory === null ? (
               <div className="sidebar-history-loader">
@@ -412,10 +549,10 @@ export default function Sidebar({
             )}
 
             {/* Active connections */}
-            {connections.filter(c => 
-              (c.name || c.host).toLowerCase().includes(filterText.toLowerCase()) || 
+            {connections.filter(c =>
+              (c.name || c.host).toLowerCase().includes(filterText.toLowerCase()) ||
               (tables[c.id] || []).some(t => t.name.toLowerCase().includes(filterText.toLowerCase()))
-            ).map(conn => (
+            ).filter(c => !showConnRail || c.id === focusedConnId).map(conn => (
               <div key={conn.id} className={`sidebar-conn ${conn.id === activeConnectionId ? 'active' : ''}`} onContextMenu={(e) => handleContextMenu(e, conn.id, false)}>
                 {/* ── Connection header ── */}
                 <div className="sidebar-conn-header" onClick={() => toggleConn(conn.id)}>
@@ -442,9 +579,8 @@ export default function Sidebar({
                     </span>
                   )}
                   <span className="sidebar-conn-type">{conn.type === 'postgres' ? 'PG' : conn.type === 'mysql' ? 'MY' : 'CH'}</span>
-                </div>
 
-                {/* ── Action buttons ── */}
+                {/* ── Action buttons (inside the header so they overlay it on hover) ── */}
                 <div className="sidebar-conn-actions">
                   {/* Switch DB button — opens floating dropdown */}
                   <div style={{ position: 'relative' }}>
@@ -509,6 +645,7 @@ export default function Sidebar({
                   <button className="sidebar-action-btn error" onClick={(e) => { e.stopPropagation(); onDisconnect(conn.id) }} title="Disconnect">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/></svg>
                   </button>
+                </div>
                 </div>
 
                 {(expandedConns.has(conn.id) || filterText) && (
@@ -577,7 +714,7 @@ export default function Sidebar({
                                 >
                                   <svg className={isExpanded ? 'expanded' : ''} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
                                 </button>
-                                <div className="sidebar-table-main" onClick={(e) => { toggleTableSelect(e, conn.id, table.fullName, orderedTables); onTableClick(table.fullName, conn.id, activeDbs[conn.id]) }}>
+                                <div className="sidebar-table-main" onClick={() => onTableClick(table.fullName, conn.id, activeDbs[conn.id])}>
                                   {isView ? (
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-teal)" strokeWidth="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                   ) : (
@@ -613,7 +750,27 @@ export default function Sidebar({
                           <>
                             {baseTables.length > 0 && (
                               <>
-                                <div className="sidebar-objects-section-label">Tables ({baseTables.length})</div>
+                                <div className="sidebar-objects-section-label sidebar-select-all-row">
+                                  <span>Tables ({baseTables.length})</span>
+                                  <button
+                                    type="button"
+                                    className="sidebar-select-all-btn"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onContextMenu={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      const allSelected = baseTables.every(t => isTableSelected(conn.id, t.fullName))
+                                      setSelectedTables(prev => {
+                                        const next = new Set(prev[conn.id] || [])
+                                        baseTables.forEach(t => allSelected ? next.delete(t.fullName) : next.add(t.fullName))
+                                        return { ...prev, [conn.id]: next }
+                                      })
+                                    }}
+                                  >
+                                    {baseTables.every(t => isTableSelected(conn.id, t.fullName)) ? 'Deselect all' : 'Select all'}
+                                  </button>
+                                </div>
                                 {baseTables.map(renderTableRow)}
                               </>
                             )}
@@ -634,6 +791,9 @@ export default function Sidebar({
                     {getSelectionCount(conn.id) > 0 && (
                       <div className="sidebar-selection-bar">
                         <span className="sidebar-sel-count">{getSelectionCount(conn.id)} selected</span>
+                        <button className="sidebar-sel-delete" onClick={() => { onTruncateTable?.(conn.id, [...selectedTables[conn.id]]); clearSelection(conn.id) }}>
+                          Truncate {getSelectionCount(conn.id)}
+                        </button>
                         <button className="sidebar-sel-clear" onClick={() => clearSelection(conn.id)}>Clear</button>
                         <button className="sidebar-sel-delete" onClick={() => { onDeleteMultipleTables(conn.id, [...selectedTables[conn.id]]); clearSelection(conn.id) }}>
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -689,7 +849,8 @@ export default function Sidebar({
           </>
         )}
       </div>
-      
+      </div>
+
       {contextMenu && (
         <div 
           ref={menuRef}
@@ -708,6 +869,10 @@ export default function Sidebar({
               }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 Rename Connection
+              </button>
+              <button className="context-menu-item" onClick={() => { handleDownloadConfig(contextMenu.connId, contextMenu.isSaved); setContextMenu(null) }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                Download Config
               </button>
               {!contextMenu.isSaved && (
                 <>
@@ -748,6 +913,11 @@ export default function Sidebar({
                     <div className="context-menu-divider"></div>
                     <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>Export Database (SQL)...</button>
                     <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>Export Database (CSV)...</button>
+                    <div className="context-menu-divider"></div>
+                    <button className="context-menu-item context-menu-danger" onClick={() => { onDeleteAllTables?.(contextMenu.connId); setContextMenu(null) }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      Delete All Tables...
+                    </button>
                 </>
               )}
               <div className="context-menu-divider"></div>
@@ -791,45 +961,69 @@ export default function Sidebar({
               
               <div className="context-menu-divider"></div>
               
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'export' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('export')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Export</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>To CSV</button>
-                  <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>To SQL</button>
-                </div>
+                {openSubmenu === 'export' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'csv'); setContextMenu(null) }}>To CSV</button>
+                    <button className="context-menu-item" onClick={() => { onExportDatabase(contextMenu.connId, 'sql'); setContextMenu(null) }}>To SQL</button>
+                  </div>
+                )}
               </div>
-              
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'import' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('import')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Import</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onImportCSV(contextMenu.connId); setContextMenu(null) }}>From CSV</button>
-                </div>
+                {openSubmenu === 'import' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onImportCSV(contextMenu.connId); setContextMenu(null) }}>From CSV</button>
+                  </div>
+                )}
               </div>
 
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'new' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('new')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>New</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { onScaffoldNewTable(contextMenu.connId); setContextMenu(null) }}>Table</button>
-                </div>
+                {openSubmenu === 'new' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => { onScaffoldNewTable(contextMenu.connId); setContextMenu(null) }}>Table</button>
+                  </div>
+                )}
               </div>
 
-              <div className="context-menu-item sidebar-context-submenu-trigger">
+              <div
+                className={`context-menu-item sidebar-context-submenu-trigger ${openSubmenu === 'copyscript' ? 'submenu-open' : ''}`}
+                onMouseEnter={() => setOpenSubmenu('copyscript')}
+                onMouseLeave={() => setOpenSubmenu(null)}
+              >
                 <span>Copy Script As</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div className="sidebar-context-submenu">
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`SELECT * FROM ${contextMenu.tableName};`); setContextMenu(null) 
-                  }}>SELECT statement</button>
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`INSERT INTO ${contextMenu.tableName} () VALUES ();`); setContextMenu(null) 
-                  }}>INSERT statement</button>
-                  <button className="context-menu-item" onClick={() => { 
-                    navigator.clipboard.writeText(`UPDATE ${contextMenu.tableName} SET col = val WHERE id = ?;`); setContextMenu(null) 
-                  }}>UPDATE statement</button>
-                </div>
+                {openSubmenu === 'copyscript' && (
+                  <div ref={submenuRef} className="sidebar-context-submenu" style={submenuStyle}>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`SELECT * FROM ${contextMenu.tableName};`); setContextMenu(null)
+                    }}>SELECT statement</button>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`INSERT INTO ${contextMenu.tableName} () VALUES ();`); setContextMenu(null)
+                    }}>INSERT statement</button>
+                    <button className="context-menu-item" onClick={() => {
+                      navigator.clipboard.writeText(`UPDATE ${contextMenu.tableName} SET col = val WHERE id = ?;`); setContextMenu(null)
+                    }}>UPDATE statement</button>
+                  </div>
+                )}
               </div>
 
               <div className="context-menu-divider"></div>
@@ -840,9 +1034,15 @@ export default function Sidebar({
               }}>Clone...</button>
 
               <button className="context-menu-item context-menu-danger" onClick={() => {
-                onTruncateTable?.(contextMenu.connId, contextMenu.tableName)
+                const multi = isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1
+                onTruncateTable?.(contextMenu.connId, multi ? [...selectedTables[contextMenu.connId]] : [contextMenu.tableName])
+                if (multi) clearSelection(contextMenu.connId)
                 setContextMenu(null)
-              }}>Truncate...</button>
+              }}>
+                {isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1
+                  ? `Truncate ${getSelectionCount(contextMenu.connId)} tables...`
+                  : 'Truncate...'}
+              </button>
               
               {isTableSelected(contextMenu.connId, contextMenu.tableName) && getSelectionCount(contextMenu.connId) > 1 ? (
                 <button className="context-menu-item context-menu-danger" onClick={() => {
@@ -869,3 +1069,5 @@ export default function Sidebar({
     </div>
   )
 }
+
+export default React.memo(Sidebar)

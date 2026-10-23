@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('dbAccess', {
+  // --- Window chrome ---
+  setTitleBarOverlay: (options) => ipcRenderer.invoke('window:set-titlebar-overlay', options),
+  newWindow: () => ipcRenderer.invoke('window:new'),
+  confirm: (options) => ipcRenderer.invoke('dialog:confirm', options),
+
   // --- Connection ---
   connect: (config) => ipcRenderer.invoke('db:connect', config),
   getConnections: () => ipcRenderer.invoke('db:get-connections'),
@@ -43,6 +48,17 @@ contextBridge.exposeInMainWorld('dbAccess', {
   generateSyncScript: (schemaDiff, direction) => ipcRenderer.invoke('db:generate-sync-script', schemaDiff, direction),
   applySync: (connId, script) => ipcRenderer.invoke('db:apply-sync', connId, script),
 
+  // --- DB Migration ---
+  migrationPlan: (srcId, tgtId, options) => ipcRenderer.invoke('migration:plan', srcId, tgtId, options),
+  migrationRun: (runId, srcId, tgtId, options) => ipcRenderer.invoke('migration:run', runId, srcId, tgtId, options),
+  migrationCancel: (runId) => ipcRenderer.invoke('migration:cancel', runId),
+  migrationVerify: (srcId, tgtId, tables) => ipcRenderer.invoke('migration:verify', srcId, tgtId, tables),
+  onMigrationProgress: (cb) => {
+    const handler = (_event, evt) => cb(evt);
+    ipcRenderer.on('migration:progress', handler);
+    return () => ipcRenderer.removeListener('migration:progress', handler);
+  },
+
   // --- Metrics ---
   getMetrics: (connectionId) => ipcRenderer.invoke('db:get-metrics', connectionId),
 
@@ -64,9 +80,21 @@ contextBridge.exposeInMainWorld('dbAccess', {
 
   // --- Licensing ---
   license: {
-    activate:     (apiKey) => ipcRenderer.invoke('license:activate', apiKey),
+    activate:     (apiKey, name, email) => ipcRenderer.invoke('license:activate', apiKey, name, email),
     validate:     ()       => ipcRenderer.invoke('license:validate'),
     checkVersion: ()       => ipcRenderer.invoke('license:check-version'),
     clear:        ()       => ipcRenderer.invoke('license:clear'),
+  },
+
+  // --- AI assistant (natural-language-to-SQL) ---
+  ai: {
+    listProviders: ()                        => ipcRenderer.invoke('ai:list-providers'),
+    listModels:    (params)                  => ipcRenderer.invoke('ai:list-models', params),
+    testModel:     (params)                  => ipcRenderer.invoke('ai:test-model', params),
+    saveConfig:    (provider, apiKey, options) => ipcRenderer.invoke('ai:save-config', provider, apiKey, options),
+    getStatus:     ()                        => ipcRenderer.invoke('ai:get-config-status'),
+    clearConfig:   ()                        => ipcRenderer.invoke('ai:clear-config'),
+    generateSql:   (params)                  => ipcRenderer.invoke('ai:generate-sql', params),
+    cancelGenerate: (requestId)               => ipcRenderer.invoke('ai:cancel-generate', requestId),
   },
 });

@@ -1,5 +1,6 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from 'react'
 import DeleteConfirmModal from './DeleteConfirmModal'
+import TableStructurePanel from './TableStructurePanel'
 import './ResultsGrid.css'
 
 const operators = [
@@ -44,7 +45,12 @@ const sqlLiteral = (v) => {
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
   // Real Date instances (ideal path)
   if (v instanceof Date) return `'${v.toISOString()}'`
-  // Objects (jsonb, arrays, etc.)
+  // Arrays of scalars -> Postgres array literal ('{"a","b"}'); JSON text is "malformed array literal"
+  if (Array.isArray(v) && v.every(el => el === null || typeof el !== 'object')) {
+    const els = v.map(el => el === null ? 'NULL' : `"${String(el).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')
+    return `'${`{${els}}`.replace(/'/g, "''")}'`
+  }
+  // Objects (jsonb, arrays of objects, etc.)
   if (typeof v === 'object') return `'${JSON.stringify(v).replace(/'/g, "''")}'`
   const str = String(v)
   // Electron contextBridge converts Date→string via .toString(); detect and fix
@@ -72,7 +78,7 @@ const applyOperator = (val, op, filterVal) => {
   }
 }
 
-export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', connectionId, connectionName, onSaveDeleteHistory, ctrlSRef }) {
+function ResultsGrid({ results, isRunning, onExport, onRunQuery, onSetQuery, onRefresh, onImport, sourceTable, pageSize = 100, density = 'normal', showGridLines = true, connectionId, connectionName, onSaveDeleteHistory, ctrlSRef, dbTotalRowCount = null, dbPage = 0, onDbPageChange }) {
   const tableRef = useRef(null)
   const cellEditRef = useRef(null)
   const [filterText, setFilterText] = useState('')
@@ -92,6 +98,10 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
   const [copiedCell, setCopiedCell] = useState(null)
   const [colWidths, setColWidths] = useState({})
   const [hiddenColumns, setHiddenColumns] = useState(new Set())
+  const [viewMode, setViewMode] = useState('data') // 'data' | 'structure' | 'index'
+
+  // Reset to the Data view whenever the underlying table/connection changes
+  useEffect(() => { setViewMode('data') }, [sourceTable, connectionId])
   const [showColVisibility, setShowColVisibility] = useState(false)
   const [toastMsg, setToastMsg] = useState(null)
   const [columnOrder, setColumnOrder] = useState(null)
@@ -105,11 +115,24 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
   const menuRef = useRef(null)
   const [activeSubmenu, setActiveSubmenu] = useState(null)
   const submenuTimerRef = useRef(null)
+  const submenuRef = useRef(null)
+  const [submenuStyle, setSubmenuStyle] = useState({})
 
   const showToast = (msg, type = 'info') => {
     setToastMsg({ msg, type })
     setTimeout(() => setToastMsg(null), 2200)
   }
+
+  // Flip the open submenu up/left when it would otherwise overflow the window
+  useLayoutEffect(() => {
+    if (!activeSubmenu || !submenuRef.current) { setSubmenuStyle({}); return }
+    const rect = submenuRef.current.getBoundingClientRect()
+    const MARGIN = 8
+    const style = {}
+    if (rect.bottom > window.innerHeight - MARGIN) { style.top = 'auto'; style.bottom = -4 }
+    if (rect.right > window.innerWidth - MARGIN) { style.left = 'auto'; style.right = '100%' }
+    setSubmenuStyle(style)
+  }, [activeSubmenu])
 
   // Reposition context menu after it renders so it never goes off-screen
   useEffect(() => {
@@ -242,7 +265,19 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
           </svg>
           <div>
-            <div className="error-title">Query Error</div>
+            <div className="error-title-row">
+              <div className="error-title">Query Error</div>
+              <button
+                className="error-copy-btn"
+                onClick={() => { navigator.clipboard.writeText(results.error).catch(() => {}); showToast('Error message copied', 'success') }}
+                title="Copy error message"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+                Copy
+              </button>
+            </div>
             <div className="error-message">{results.error}</div>
           </div>
         </div>
@@ -316,6 +351,19 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
   const filteredRows = sortedRows
   const totalPages = Math.ceil(filteredRows.length / pageSize)
   const pagedRows = filteredRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+
+  // --- Server-side (DB) pagination for table-browse tabs ---
+  // A tab opened by clicking a table in the sidebar always fetches exactly
+  // one page (LIMIT pageSize) at a time from the database, so the client-side
+  // pagination above is naturally a no-op for it (filteredRows.length <=
+  // pageSize). This is the real "browse the whole table" pagination instead —
+  // Prev/Next/First/Last re-query the database at a different OFFSET.
+  const isDbPaginated = !!sourceTable && typeof onDbPageChange === 'function'
+  const dbTotalPages = dbTotalRowCount != null ? Math.max(1, Math.ceil(dbTotalRowCount / pageSize)) : null
+  const dbHasPrev = dbPage > 0
+  // Until the COUNT(*) comes back, guess there's a next page whenever this
+  // page came back full — the common case while the total is still loading.
+  const dbHasNext = dbTotalPages != null ? dbPage < dbTotalPages - 1 : rows.length >= pageSize
 
   // --- Filter CRUD ---
   const addFilter = () => {
@@ -431,7 +479,17 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
         const parts = []
         if (editCount > 0) parts.push(`${editCount} edit${editCount !== 1 ? 's' : ''}`)
         if (insertCount > 0) parts.push(`${insertCount} row${insertCount !== 1 ? 's' : ''} inserted`)
-        showToast(parts.join(', ') + ' saved', 'success')
+        // Each UPDATE/INSERT statement should affect exactly one row; if the
+        // reported total is short, at least one UPDATE's WHERE matched nothing
+        // (e.g. the row changed/was removed elsewhere) — surface that instead
+        // of a blanket success, same as the delete flow does.
+        const expectedMin = editCount + insertCount
+        const affected = res.data?.rowCount
+        if (typeof affected === 'number' && affected < expectedMin) {
+          showToast(`${parts.join(', ')} attempted, but only ${affected} row${affected !== 1 ? 's' : ''} actually changed — some edits may not have matched (row changed or removed elsewhere).`, 'error')
+        } else {
+          showToast(parts.join(', ') + ' saved', 'success')
+        }
         onRefresh?.()
       } else {
         showToast(`Commit failed: ${res?.error || 'Unknown error'}`, 'error')
@@ -501,7 +559,10 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
     const multiRows = selectedRows.size > 1
       ? [...selectedRows].sort((a, b) => a - b).map(idx => rows[idx]).filter(Boolean)
       : [contextMenu.row]
-    const keys = Object.keys(multiRows[0])
+    // __db_ctid is our own internal row-identity helper, not a real table
+    // column — exclude it from every copy format, not just INSERT, so it
+    // never leaks out (and can't round-trip back in via Paste-as-INSERT).
+    const keys = Object.keys(multiRows[0]).filter(k => k !== '__db_ctid')
 
     const escapeCsv = (val) => {
       const str = formatCellValue(val)
@@ -537,14 +598,9 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
         break
       case 'insert': {
         const tableName = sourceTable || 'table_name'
-        const cols = keys.join(', ')
+        const cols = keys.map(k => `"${k}"`).join(', ')
         result = multiRows.map(row => {
-          const sqlVals = keys.map(k => {
-            const v = row[k]
-            if (v === null || v === undefined) return 'NULL'
-            if (typeof v === 'number') return v
-            return `'${formatCellValue(v).replace(/'/g, "''")}'`
-          }).join(', ')
+          const sqlVals = keys.map(k => sqlLiteral(row[k])).join(', ')
           return `INSERT INTO ${tableName} (${cols}) VALUES (${sqlVals});`
         }).join('\n')
         break
@@ -687,7 +743,32 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
     const cascadeRows = []
     try {
       let sql = 'BEGIN;\n'
-      if (doCascade && fkImpact.length > 0) {
+      let deepCascade = false
+      if (doCascade && window.dbAccess?.getSchemaFull) {
+        // Walk the FK graph so grandchildren go before children, and children before the parent
+        const schemaRes = await window.dbAccess.getSchemaFull(connectionId).catch(() => ({ success: false }))
+        if (schemaRes.success) {
+          const fks = schemaRes.data.foreignKeys || []
+          const quoteFull = (n) => n.split('.').map(part => `"${part}"`).join('.')
+          const stmts = []
+          const walk = (parentFull, whereSql, path) => {
+            fks.filter(fk => fk.targetTable === parentFull && !path.includes(fk.sourceTable)).forEach(fk => {
+              const childWhere = `"${fk.sourceColumn}" IN (SELECT "${fk.targetColumn}" FROM ${quoteFull(parentFull)} WHERE ${whereSql})`
+              walk(fk.sourceTable, childWhere, [...path, fk.sourceTable])
+              stmts.push(`DELETE FROM ${quoteFull(fk.sourceTable)} WHERE ${childWhere};`)
+            })
+          }
+          walk(sourceTable, buildDeleteConditions(rowsToDelete), [sourceTable])
+          sql += stmts.map(st => st + '\n').join('')
+          deepCascade = true
+          fkImpact.forEach(fk => {
+            if (fk.affectedRows?.length > 0) {
+              cascadeRows.push({ tableName: fk.fullTableName, rowCount: fk.affectedCount, rows: fk.affectedRows })
+            }
+          })
+        }
+      }
+      if (doCascade && !deepCascade && fkImpact.length > 0) {
         for (const fk of fkImpact) {
           if (fk.affectedCount === 0) continue
           const srcVals = rowsToDelete.map(r => r[fk.srcColumn]).filter(v => v !== null && v !== undefined)
@@ -704,24 +785,32 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
       sql += 'COMMIT;'
       const delRes = await onRunQuery(sql)
       if (delRes?.success) {
-        if (onSaveDeleteHistory) {
-          onSaveDeleteHistory({
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            timestamp: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            connectionId,
-            connectionName: connectionName || '',
-            tableName: sourceTable,
-            operation: 'delete',
-            rowCount: rowsToDelete.length,
-            rows: rowsToDelete,
-            cascadeRows,
-            cascadeRowCount: cascadeRows.reduce((s, c) => s + c.rowCount, 0),
-            restorable: true,
-          })
+        const affected = delRes.data?.rowCount
+        if (typeof affected === 'number' && affected === 0) {
+          // Query ran without error but matched nothing — surface this instead of
+          // reporting a false success (e.g. rows already changed/removed elsewhere).
+          showToast('No matching rows were deleted — they may have already changed or been removed.', 'error')
+        } else {
+          if (onSaveDeleteHistory) {
+            onSaveDeleteHistory({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              timestamp: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              connectionId,
+              connectionName: connectionName || '',
+              tableName: sourceTable,
+              operation: 'delete',
+              rowCount: rowsToDelete.length,
+              rows: rowsToDelete,
+              cascadeRows,
+              cascadeRowCount: cascadeRows.reduce((s, c) => s + c.rowCount, 0),
+              restorable: true,
+            })
+          }
+          showToast(`Deleted ${rowsToDelete.length} row${rowsToDelete.length !== 1 ? 's' : ''}${doCascade && cascadeRows.length > 0 ? ' + cascade' : ''}`, 'success')
         }
-        showToast(`Deleted ${rowsToDelete.length} row${rowsToDelete.length !== 1 ? 's' : ''}${doCascade && cascadeRows.length > 0 ? ' + cascade' : ''}`, 'success')
-        if (sourceTable) await onRunQuery(`SELECT * FROM ${sourceTable};`)
+        if (onRefresh) await onRefresh()
+        else if (sourceTable) await onRunQuery(`SELECT * FROM ${sourceTable};`)
         setSelectedRows(new Set())
       } else {
         showToast(`Delete failed: ${delRes?.error || 'Unknown error'}`, 'error')
@@ -739,21 +828,21 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
       try {
         const obj = JSON.parse(text)
         const entries = Array.isArray(obj) ? obj : [obj]
-        const cols = Object.keys(entries[0]).map(c => `"${c}"`).join(', ')
+        // Defensively strip __db_ctid in case the clipboard JSON came from a
+        // "Copy JSON" of our own grid (or any other source using that key) —
+        // it's never a real column and must not be scaffolded into an INSERT.
+        const keys = Object.keys(entries[0]).filter(k => k !== '__db_ctid')
+        const cols = keys.map(c => `"${c}"`).join(', ')
         const valRows = entries.map(row =>
-          '(' + Object.values(row).map(v => {
-            if (v === null || v === undefined) return 'NULL'
-            if (typeof v === 'number') return v
-            return `'${String(v).replace(/'/g, "''")}'`
-          }).join(', ') + ')'
+          '(' + keys.map(k => sqlLiteral(row[k])).join(', ') + ')'
         ).join(',\n')
         onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES\n${valRows};`)
         showToast('Pasted from clipboard as INSERT', 'success')
         setContextMenu(null); setActiveSubmenu(null)
         return
       } catch (_) {/* not JSON */}
-      const vals = text.split('\t').map(v => `'${v.replace(/'/g, "''")}'`).join(', ')
-      const cols = columns.map(c => `"${c.name}"`).join(', ')
+      const vals = text.split('\t').map(v => sqlLiteral(v)).join(', ')
+      const cols = columns.filter(c => c.name !== '__db_ctid').map(c => `"${c.name}"`).join(', ')
       onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES (${vals});`)
       showToast('Pasted clipboard as row values', 'success')
     } catch (err) {
@@ -958,8 +1047,16 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
           </div>
         )}
 
+        {viewMode !== 'data' ? (
+          <TableStructurePanel
+            key={viewMode}
+            connectionId={connectionId}
+            tableName={sourceTable}
+            initialTab={viewMode === 'index' ? 'indexes' : 'columns'}
+          />
+        ) : (
         <div className="results-table-wrapper" ref={tableRef}>
-          <table className={`results-table density-${density}`}>
+          <table className={`results-table density-${density}${showGridLines ? '' : ' no-grid-lines'}`}>
             <thead>
               <tr>
                 <th className="row-num-header">#</th>
@@ -1015,11 +1112,13 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
                       const isEditing = editingCell?.ri === globalIdx && editingCell?.ci === originalCi
                       const isCopied = copiedCell === `${globalIdx}:${originalCi}`
                       const isJsonObj = typeof val === 'object' && val !== null
+                      const isBool = typeof val === 'boolean'
+                      const isDate = !isNull && !isBool && parseAnyDate(val) !== null
 
                       return (
                         <td
                           key={ci}
-                          className={`${isNull ? 'cell-null' : ''} ${isPending ? 'cell-staged' : ''} ${isCopied ? 'cell-copied' : ''} ${isJsonObj ? 'cell-json' : ''}`}
+                          className={`${isNull ? 'cell-null' : ''} ${isPending ? 'cell-staged' : ''} ${isCopied ? 'cell-copied' : ''} ${isJsonObj ? 'cell-json' : ''} ${isBool ? 'cell-bool' : ''} ${isDate ? 'cell-date' : ''}`}
                           title={isNull ? 'NULL' : formatCellValue(val)}
                           onDoubleClick={() => handleCellDoubleClick(globalIdx, originalCi, val)}
                           onContextMenu={(e) => handleCellContextMenu(e, globalIdx, row, originalCi, val)}
@@ -1112,19 +1211,59 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             </tbody>
           </table>
         </div>
-
-        {totalPages > 1 && (
-          <div className="results-pagination">
-            <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
-            <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
-            <span className="pagination-info">
-              Page {currentPage + 1} of {totalPages}
-              <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
-            </span>
-            <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
-            <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
-          </div>
         )}
+
+        <div className="results-footer">
+          <div className="results-view-tabs">
+            <button className={`results-view-tab ${viewMode === 'data' ? 'active' : ''}`} onClick={() => setViewMode('data')}>Data</button>
+            <button className={`results-view-tab ${viewMode === 'structure' ? 'active' : ''}`} disabled={!sourceTable} title={!sourceTable ? 'Open a table to view its structure' : ''} onClick={() => setViewMode('structure')}>Structure</button>
+            <button className={`results-view-tab ${viewMode === 'index' ? 'active' : ''}`} disabled={!sourceTable} title={!sourceTable ? 'Open a table to view its indexes' : ''} onClick={() => setViewMode('index')}>Index</button>
+          </div>
+          {viewMode === 'data' && (
+            <div className="results-footer-right">
+              {isDbPaginated ? (
+                <>
+                  <span className="results-footer-count">
+                    {(filterText || advancedFilters.length > 0) && filteredRows.length !== rows.length
+                      ? `${filteredRows.length.toLocaleString()} matching (of ${rows.length.toLocaleString()} on page)`
+                      : `${rows.length.toLocaleString()} row${rows.length !== 1 ? 's' : ''}`}
+                    {dbTotalRowCount != null && (
+                      <span className="results-footer-total"> · {dbTotalRowCount.toLocaleString()} total</span>
+                    )}
+                  </span>
+                  <div className="results-pagination">
+                    <button className="pagination-btn" disabled={!dbHasPrev || isRunning} onClick={() => onDbPageChange(0)} title="First page">⟪</button>
+                    <button className="pagination-btn" disabled={!dbHasPrev || isRunning} onClick={() => onDbPageChange(dbPage - 1)}>← Prev</button>
+                    <span className="pagination-info">
+                      Page {dbPage + 1}{dbTotalPages != null ? ` of ${dbTotalPages}` : ''}
+                      <span className="pagination-range">
+                        ({rows.length === 0 ? 0 : (dbPage * pageSize + 1).toLocaleString()}–{(dbPage * pageSize + rows.length).toLocaleString()})
+                      </span>
+                    </span>
+                    <button className="pagination-btn" disabled={!dbHasNext || isRunning} onClick={() => onDbPageChange(dbPage + 1)}>Next →</button>
+                    <button className="pagination-btn" disabled={dbTotalPages == null || !dbHasNext || isRunning} onClick={() => onDbPageChange(dbTotalPages - 1)} title="Last page">⟫</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="results-footer-count">{filteredRows.length.toLocaleString()} row{filteredRows.length !== 1 ? 's' : ''}</span>
+                  {totalPages > 1 && (
+                    <div className="results-pagination">
+                      <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(0)} title="First page">⟪</button>
+                      <button className="pagination-btn" disabled={currentPage === 0} onClick={() => setCurrentPage(p => Math.max(0, p - 1))}>← Prev</button>
+                      <span className="pagination-info">
+                        Page {currentPage + 1} of {totalPages}
+                        <span className="pagination-range">({(currentPage * pageSize + 1).toLocaleString()}–{Math.min((currentPage + 1) * pageSize, filteredRows.length).toLocaleString()})</span>
+                      </span>
+                      <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}>Next →</button>
+                      <button className="pagination-btn" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(totalPages - 1)} title="Last page">⟫</button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {showJsonSidebar && (
@@ -1209,13 +1348,12 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
           <button onClick={() => {
             if (!sourceTable) { showToast('Open a direct table view to duplicate a row.', 'error'); setContextMenu(null); setActiveSubmenu(null); return }
             const row = contextMenu.row
-            const cols = columns.map(c => `"${c.name}"`).join(', ')
-            const vals = columns.map(col => {
-              const v = row[col.name]
-              if (v === null || v === undefined) return 'NULL'
-              if (typeof v === 'number') return v
-              return `'${String(v).replace(/'/g, "''")}'`
-            }).join(', ')
+            // __db_ctid is our own internal row-identity helper (added via
+            // `SELECT ..., ctid AS __db_ctid`), not a real table column — it
+            // must never be inserted as data.
+            const insertCols = columns.filter(c => c.name !== '__db_ctid')
+            const cols = insertCols.map(c => `"${c.name}"`).join(', ')
+            const vals = insertCols.map(col => sqlLiteral(row[col.name])).join(', ')
             onSetQuery?.(`INSERT INTO ${sourceTable} (${cols})\nVALUES (${vals});`)
             setContextMenu(null); setActiveSubmenu(null)
           }}>
@@ -1233,7 +1371,7 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             <span>Set Value</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'setvalue' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => { setPendingChanges(prev => ({ ...prev, [`${contextMenu.ri}:${contextMenu.ci}`]: '' })); setContextMenu(null); setActiveSubmenu(null) }}>Empty String</button>
                 <button onClick={() => { setPendingChanges(prev => ({ ...prev, [`${contextMenu.ri}:${contextMenu.ci}`]: null })); setContextMenu(null); setActiveSubmenu(null) }}>NULL</button>
               </div>
@@ -1267,7 +1405,7 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             <span>Copy As</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'copyas' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => handleCopyAs('json')}>JSON</button>
                 <div className="ctx-divider" />
                 <button onClick={() => handleCopyAs('markdown')}>Markdown Table</button>
@@ -1291,7 +1429,7 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             <span>Quick Filter</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'filter' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => handleQuickFilter('equals')}>= Equals this value</button>
                 <button onClick={() => handleQuickFilter('not_equals')}>≠ Not equals this value</button>
                 <div className="ctx-divider" />
@@ -1316,7 +1454,7 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
             <span>Import</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             {activeSubmenu === 'import' && (
-              <div className="ctx-submenu" onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
+              <div ref={submenuRef} className="ctx-submenu" style={submenuStyle} onMouseEnter={holdSubmenu} onMouseLeave={closeSubmenu}>
                 <button onClick={() => {
                   if (onImport) { onImport(); setContextMenu(null); setActiveSubmenu(null) }
                   else { showToast('Import handler not connected.', 'error'); setContextMenu(null); setActiveSubmenu(null) }
@@ -1387,3 +1525,5 @@ export default function ResultsGrid({ results, isRunning, onExport, onRunQuery, 
     </div>
   )
 }
+
+export default React.memo(ResultsGrid)

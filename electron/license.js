@@ -5,26 +5,18 @@ const crypto = require('crypto');
 const http  = require('http');
 const https = require('https');
 
-// ─── Change this URL when you deploy the licensing server remotely ────────────
 const LICENSE_SERVER_URL = 'http://localhost:3500';
-// ─────────────────────────────────────────────────────────────────────────────
 
-// ─── API-key gate toggle ──────────────────────────────────────────────────────
-// Set  DBACCESS_LICENSE_ENABLED=false  (or 0 / no) in the environment to run
-// the app without requiring a license key — useful for internal/dev builds.
-// Any other value (or omitting the variable entirely) keeps the gate active.
-const LICENSE_ENABLED = (() => {
-  const v = process.env.DBACCESS_LICENSE_ENABLED;
-  if (v === undefined || v === null) return true;   // default: gate ON
-  return v !== 'false' && v !== '0' && v !== 'no';
-})();
-// ─────────────────────────────────────────────────────────────────────────────
+// Set to true to skip the license check entirely (dev/testing only — set false before release)
+const isAccess = true;
+
+// 7-day offline grace in milliseconds
+const OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Lazy — computed inside functions so app.getPath is never called before app.ready
 const getLicenseFile = () => path.join(app.getPath('userData'), 'license.dat');
 const getDeviceFile  = () => path.join(app.getPath('userData'), 'device.dat');
 
-// Returns a stable device ID stored in userData (survives app reinstalls on same machine)
 function getOrCreateDeviceId() {
   try {
     const deviceFile = getDeviceFile();
@@ -40,47 +32,93 @@ function getOrCreateDeviceId() {
   }
 }
 
-// Hardware fingerprint — hashed so it's anonymous
 function getMachineFingerprint() {
   const os = require('os');
   const raw = [os.hostname(), os.platform(), os.arch(), os.cpus()[0]?.model || ''].join('|');
   return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 
-// Encrypt and save the raw API key to disk
-function saveLicense(apiKey) {
+function getAppVersion() {
+  try { return require('../package.json').version; } catch { return '1.0.0'; }
+}
+
+// ── License file I/O (stores key + JWT together) ──────────────────────────────
+
+function saveLocalLicense(apiKey, jwtToken) {
   try {
+    const payload = JSON.stringify({ key: apiKey, jwt: jwtToken || '', v: 2 });
     let stored;
     if (safeStorage.isEncryptionAvailable()) {
-      stored = safeStorage.encryptString(apiKey).toString('base64');
+      stored = safeStorage.encryptString(payload).toString('base64');
     } else {
-      stored = Buffer.from(apiKey).toString('base64');
+      stored = Buffer.from(payload).toString('base64');
     }
-    fs.writeFileSync(getLicenseFile(), JSON.stringify({ key: stored, v: 1 }), 'utf-8');
+    fs.writeFileSync(getLicenseFile(), stored, 'utf-8');
     return true;
   } catch {
     return false;
   }
 }
 
-// Read and decrypt the stored key
-function loadStoredKey() {
+function loadLocalLicense() {
   try {
     const licenseFile = getLicenseFile();
     if (!fs.existsSync(licenseFile)) return null;
-    const data = JSON.parse(fs.readFileSync(licenseFile, 'utf-8'));
-    if (!data.key) return null;
-    const buf = Buffer.from(data.key, 'base64');
+
+    const stored = fs.readFileSync(licenseFile, 'utf-8').trim();
+    const buf = Buffer.from(stored, 'base64');
+
+    let raw;
     if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString(buf);
+      raw = safeStorage.decryptString(buf);
+    } else {
+      raw = buf.toString('utf-8');
     }
-    return buf.toString('utf-8');
+
+    const data = JSON.parse(raw);
+
+    // v1 format only had { key, v:1 } — upgrade in place
+    if (data.v === 1) return { key: data.key, jwt: null };
+    if (data.v === 2) return { key: data.key, jwt: data.jwt || null };
+    return null;
   } catch {
     return null;
   }
 }
 
-// Simple HTTP/HTTPS request helper
+// ── JWT helpers (no signature verify — server verifies; we only read exp) ─────
+
+function decodeJwtLocally(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // base64url → base64 → JSON
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/').padEnd(
+      Math.ceil(parts[1].length / 4) * 4, '='
+    );
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+// Returns true if the JWT is not yet expired
+function isJwtFresh(token) {
+  const payload = decodeJwtLocally(token);
+  if (!payload || !payload.exp) return false;
+  return Date.now() < payload.exp * 1000;
+}
+
+// Returns true if the JWT expired less than OFFLINE_GRACE_MS ago
+function isWithinOfflineGrace(token) {
+  const payload = decodeJwtLocally(token);
+  if (!payload || !payload.exp) return false;
+  const expiredAt = payload.exp * 1000;
+  return Date.now() < expiredAt + OFFLINE_GRACE_MS;
+}
+
+// ── HTTP helper ───────────────────────────────────────────────────────────────
+
 function callServer(method, endpoint, body) {
   return new Promise((resolve, reject) => {
     const url     = new URL(LICENSE_SERVER_URL + endpoint);
@@ -118,58 +156,111 @@ function callServer(method, endpoint, body) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-async function activateLicense(apiKey) {
-  if (!LICENSE_ENABLED) return { success: true };
-
+async function activateLicense(apiKey, customerName, customerEmail) {
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
     return { success: false, error: 'Please enter a valid API key' };
   }
 
   const deviceId    = getOrCreateDeviceId();
   const fingerprint = getMachineFingerprint();
-  let appVersion = '1.0.0';
-  try { appVersion = require('../package.json').version; } catch {}
 
   try {
     const res = await callServer('POST', '/api/license/activate', {
-      apikey:               apiKey.trim(),
-      device_id:            deviceId,
-      machine_fingerprint:  fingerprint,
-      app_version:          appVersion,
+      apikey:              apiKey.trim(),
+      device_id:           deviceId,
+      machine_fingerprint: fingerprint,
+      app_version:         getAppVersion(),
+      ...(customerName  ? { customer_name:  customerName.trim().slice(0, 255)  } : {}),
+      ...(customerEmail ? { customer_email: customerEmail.trim().slice(0, 255) } : {}),
     });
 
     if (res.body.success) {
-      saveLicense(apiKey.trim());
+      saveLocalLicense(apiKey.trim(), res.body.token || null);
       return { success: true };
     }
     return { success: false, error: res.body.error || 'Activation failed' };
-  } catch (err) {
-    return { success: false, error: 'Cannot reach license server. Please check your internet connection.' };
+  } catch {
+    return {
+      success: false,
+      networkError: true,
+      error: 'Cannot reach license server. Please check your internet connection.',
+    };
   }
 }
 
 async function validateLicense() {
-  if (!LICENSE_ENABLED) return { valid: true };
+  if (isAccess) return { valid: true };
 
-  const apiKey = loadStoredKey();
-  if (!apiKey) return { valid: false, reason: 'No license found' };
+  // ── 1. Pending key written by NSIS installer ──────────────────────────────
+  // Format: key=value lines (apikey, customer_name, customer_email)
+  try {
+    const pendingFile = path.join(app.getPath('userData'), 'pending_license.txt');
+    if (fs.existsSync(pendingFile)) {
+      const content = fs.readFileSync(pendingFile, 'utf-8').trim();
+      if (content) {
+        // Parse key=value pairs; fall back to treating entire content as raw key
+        const kv = {};
+        if (content.includes('=')) {
+          content.split(/\r?\n/).forEach(line => {
+            const idx = line.indexOf('=');
+            if (idx !== -1) kv[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+          });
+        } else {
+          kv.apikey = content;
+        }
 
+        const rawKey = kv.apikey;
+        if (rawKey) {
+          const result = await activateLicense(rawKey, kv.customer_name, kv.customer_email);
+          if (result.success) {
+            try { fs.unlinkSync(pendingFile); } catch {}
+            return { valid: true };
+          }
+          if (result.networkError) {
+            // Server unreachable on FIRST activation — do NOT grant access.
+            // The pending file is kept so the next launch retries automatically.
+            // 7-day offline grace only applies to already-activated installs with a JWT.
+            return { valid: false, reason: 'Cannot reach license server. Please connect to the internet and relaunch the application to complete activation.' };
+          }
+          // Key is invalid, revoked, or already used on another device
+          try { fs.unlinkSync(pendingFile); } catch {}
+          return { valid: false, reason: result.error || 'License activation failed. Please contact support.' };
+        }
+      }
+    }
+  } catch { /* ignore — continue to normal validation */ }
+
+  // ── 2. Already-activated install ──────────────────────────────────────────
+  const stored = loadLocalLicense();
+  if (!stored || !stored.key) return { valid: false, reason: 'No license found' };
+
+  // ── 2a. JWT fast-path: no server call if token is still fresh ────────────
+  if (stored.jwt && isJwtFresh(stored.jwt)) {
+    return { valid: true };
+  }
+
+  // ── 2b. JWT expired (or missing) — renew via server ──────────────────────
   const deviceId = getOrCreateDeviceId();
-  let appVersion = '1.0.0';
-  try { appVersion = require('../package.json').version; } catch {}
 
   try {
     const res = await callServer('POST', '/api/license/validate', {
-      apikey:      apiKey,
+      apikey:      stored.key,
       device_id:   deviceId,
-      app_version: appVersion,
+      app_version: getAppVersion(),
     });
 
-    if (res.body.success) return { valid: true };
+    if (res.body.success) {
+      // Persist the fresh JWT so next launch skips the server call
+      if (res.body.token) saveLocalLicense(stored.key, res.body.token);
+      return { valid: true };
+    }
     return { valid: false, reason: res.body.error || 'License invalid' };
   } catch {
-    // Server unreachable — grant offline grace if key is stored
-    return { valid: true, offline: true };
+    // ── 2c. Server unreachable — 7-day offline grace using last JWT ────────
+    if (stored.jwt && isWithinOfflineGrace(stored.jwt)) {
+      return { valid: true, offline: true };
+    }
+    return { valid: false, reason: 'Cannot reach license server and offline grace period has expired' };
   }
 }
 

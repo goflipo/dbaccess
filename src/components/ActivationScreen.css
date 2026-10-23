@@ -5,7 +5,7 @@
 }
 
 .activation-card {
-  width: 400px; padding: 48px 40px;
+  width: 420px; padding: 40px 40px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -41,16 +41,23 @@
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 
+.activation-required { color: #f87171; margin-left: 2px; }
+.activation-optional { color: var(--text-tertiary); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
 .activation-input {
   width: 100%; padding: 10px 14px;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 16px; font-family: var(--font-mono);
-  letter-spacing: 0.1em; text-align: center;
+  font-size: 14px; font-family: var(--font-mono);
+  letter-spacing: 0.04em;
   transition: border-color var(--transition-fast);
   box-sizing: border-box;
+}
+.activation-input[type="text"]:first-of-type,
+.activation-field:first-of-type .activation-input {
+  font-size: 16px; letter-spacing: 0.1em; text-align: center;
 }
 .activation-input:focus {
   outline: none; border-color: var(--accent-primary);
@@ -91,6 +98,14 @@
   display: flex; align-items: center; gap: 10px;
   color: #22c55e; font-size: 14px; font-weight: 600;
   margin: 8px 0 16px;
+}
+
+.activation-startup-msg {
+  width: 100%; padding: 10px 14px; margin-bottom: 8px;
+  background: rgba(251,191,36,.08);
+  border: 1px solid rgba(251,191,36,.3);
+  border-radius: var(--radius-sm);
+  color: #fbbf24; font-size: 12px; line-height: 1.5; text-align: left;
 }
 
 .activation-footer {

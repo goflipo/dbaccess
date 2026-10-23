@@ -32,8 +32,9 @@ function MiniTable({ rows, label }) {
   )
 }
 
-export default function DeleteConfirmModal({ mode, tableName, rows, fkImpact, onConfirm, onCancel, isLoading }) {
+export default function DeleteConfirmModal({ mode, tableName, rows, fkImpact, onConfirm, onCancel, isLoading, supportsCascade = true }) {
   const [expanded, setExpanded] = useState({})
+  const [truncateCascade, setTruncateCascade] = useState(true)
   const hasFk = fkImpact && fkImpact.length > 0
   const hasAffectedFk = hasFk && fkImpact.some(fk => fk.affectedCount > 0)
   const totalCascadeRows = fkImpact ? fkImpact.reduce((s, fk) => s + fk.affectedCount, 0) : 0
@@ -118,6 +119,8 @@ export default function DeleteConfirmModal({ mode, tableName, rows, fkImpact, on
                           <span className="dcm-fk-count-warn">{fk.affectedCount} row{fk.affectedCount !== 1 ? 's' : ''} affected</span>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: expanded[idx] ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><path d="M6 9l6 6 6-6"/></svg>
                         </>
+                      ) : mode === 'truncate' ? (
+                        <span className="dcm-fk-count-warn">references this table</span>
                       ) : (
                         <span className="dcm-fk-count-ok">No rows affected</span>
                       )}
@@ -154,6 +157,16 @@ export default function DeleteConfirmModal({ mode, tableName, rows, fkImpact, on
               {hasAffectedFk && <> Make sure referencing tables allow this or cascade manually.</>}
             </div>
           )}
+
+          {mode === 'truncate' && !isLoading && hasFk && supportsCascade && (
+            <label className="dcm-truncate-note" style={{ cursor: 'pointer', gap: 8 }}>
+              <input type="checkbox" checked={truncateCascade} onChange={e => setTruncateCascade(e.target.checked)} />
+              <span>
+                Truncate with CASCADE — also empties the referencing tables listed above.
+                Without it the database refuses to truncate a table that is referenced by a foreign key, even if the referencing table is empty.
+              </span>
+            </label>
+          )}
         </div>
 
         {/* Footer buttons */}
@@ -168,7 +181,7 @@ export default function DeleteConfirmModal({ mode, tableName, rows, fkImpact, on
             )}
             <button
               className={`dcm-btn ${hasAffectedFk && mode === 'delete' ? 'dcm-btn-cascade' : 'dcm-btn-danger'}`}
-              onClick={() => onConfirm(hasAffectedFk && mode === 'delete' ? 'cascade' : 'single')}
+              onClick={() => onConfirm(mode === 'truncate' ? (hasFk && supportsCascade && truncateCascade) : (hasAffectedFk && mode === 'delete' ? 'cascade' : 'single'))}
               disabled={isLoading}
             >
               {mode === 'truncate' ? (

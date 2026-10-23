@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import './DropTableModal.css'
 
-export default function DropTableModal({ tables, connectionType, onConfirm, onCancel }) {
-  const [cascade, setCascade] = useState(false)
+export default function DropTableModal({ tables, connectionType, onConfirm, onCancel, defaultCascade = false }) {
+  const [cascade, setCascade] = useState(defaultCascade)
   const isSingle = tables.length === 1
   const supportsCascade = connectionType !== 'clickhouse'
 

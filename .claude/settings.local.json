@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\dbaccess\" -Recurse -Force)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table FullName)",
+      "Bash(xargs ls -lh)",
+      "Bash(awk '{print $9, $5}')",
+      "Bash(node *)",
+      "Bash(npx vite *)",
+      "Bash(npx electron *)",
+      "Bash(del *)",
+      "Bash(npm show *)",
+      "Bash(npm install *)",
+      "PowerShell(ls \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\MSBuild\\\\Microsoft\\\\VC\\\\v180\\\\Platforms\\\\\" 2>$null | Select-Object Name)",
+      "PowerShell(node -e \"console.log\\(require\\('./node_modules/duckdb/package.json'\\).version\\)\")",
+      "PowerShell(npm show *)",
+      "PowerShell(node -e \"const p = require\\('./package.json'\\); console.log\\('duckdb:', p.dependencies?.duckdb || p.devDependencies?.duckdb\\)\")",
+      "Bash(git stash *)",
+      "Bash(git cherry-pick *)",
+      "Bash(not exist *)",
+      "PowerShell(New-Item *)",
+      "Bash(echo \"started, pid=$!\")",
+      "Bash(tasklist)",
+      "Bash(wmic process *)"
+    ]
+  }
+}

@@ -22,6 +22,7 @@ export default function KeyboardShortcutsModal({ onClose }) {
     ]},
     { category: 'Query Tools', shortcuts: [
       { keys: 'Explain button', action: 'Run EXPLAIN ANALYZE on query' },
+      { keys: 'Ask AI button', action: 'Generate SQL from a plain-English description (needs an API key in Settings → AI Assistant)' },
       { keys: 'Favorites button', action: 'Open saved query favorites' },
       { keys: 'Save button', action: 'Save current query as favorite' },
       { keys: 'Minify button', action: 'Minify SQL (compress whitespace)' },
@@ -33,6 +34,7 @@ export default function KeyboardShortcutsModal({ onClose }) {
       { keys: 'Ctrl+[', action: 'Switch to previous tab' },
       { keys: 'Ctrl+]', action: 'Switch to next tab' },
       { keys: 'Ctrl+K', action: 'Open Anything (search all tables)' },
+      { keys: 'Ctrl+Shift+P', action: 'Open Command Palette' },
       { keys: 'Ctrl+\\', action: 'Toggle sidebar' },
       { keys: 'Double-click tab title', action: 'Rename tab inline' },
       { keys: 'Tab right-click', action: 'Rename / Duplicate / Close tab' },
@@ -61,6 +63,7 @@ export default function KeyboardShortcutsModal({ onClose }) {
       { keys: 'DROP / DELETE / TRUNCATE / ALTER', action: 'Prompts confirmation when Safe Mode is ON' },
     ]},
     { category: 'General', shortcuts: [
+      { keys: 'Ctrl+Shift+N', action: 'Open a new app window' },
       { keys: 'Ctrl+?', action: 'Show this shortcuts reference' },
       { keys: 'Escape', action: 'Close modals & dropdown panels' },
     ]},

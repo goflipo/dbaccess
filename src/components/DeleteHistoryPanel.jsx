@@ -7,6 +7,10 @@ function sqlLiteral(v) {
   if (v === null || v === undefined) return 'NULL'
   if (typeof v === 'number') return String(v)
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
+  if (Array.isArray(v) && v.every(el => el === null || typeof el !== 'object')) {
+    const els = v.map(el => el === null ? 'NULL' : `"${String(el).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')
+    return `'${`{${els}}`.replace(/'/g, "''")}'`
+  }
   if (typeof v === 'object') return `'${JSON.stringify(v).replace(/'/g, "''")}'`
   const s = String(v)
   // Detect serialised Date strings

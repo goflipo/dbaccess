@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import Sidebar from './components/Sidebar'
+import AiChatPanel from './components/AiChatPanel'
 import TabBar from './components/TabBar'
 import QueryEditor from './components/QueryEditor'
 import ResultsGrid from './components/ResultsGrid'
@@ -8,11 +9,13 @@ import MetricsBoard from './components/MetricsBoard'
 import UserManagementPanel from './components/UserManagementPanel'
 import DBComparePanel from './components/DBComparePanel'
 import BroadcastPanel from './components/BroadcastPanel'
-import ConnectionModal from './components/ConnectionModal'
+import ConnectionModal, { DB_TYPES } from './components/ConnectionModal'
 import StatusBar from './components/StatusBar'
+import TextPromptModal from './components/TextPromptModal'
 import CreateTableModal from './components/CreateTableModal'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import OpenAnythingModal from './components/OpenAnythingModal'
+import CommandPalette from './components/CommandPalette'
 import QueryFavoritesModal from './components/QueryFavoritesModal'
 import TableStructurePanel from './components/TableStructurePanel'
 import SettingsPanel from './components/SettingsPanel'
@@ -20,6 +23,7 @@ import DeleteHistoryPanel from './components/DeleteHistoryPanel'
 import DeleteConfirmModal from './components/DeleteConfirmModal'
 import AppTour from './components/AppTour'
 import SqlFileProgress from './components/SqlFileProgress'
+import TruncateTablesModal from './components/TruncateTablesModal'
 import DropTableModal from './components/DropTableModal'
 import ActivationScreen from './components/ActivationScreen'
 import './App.css'
@@ -28,6 +32,13 @@ const genId = () => Date.now().toString(36) + Math.random().toString(36).substr(
 
 // Dangerous keywords that safe mode should block
 const DESTRUCTIVE_PATTERN = /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i
+
+const DEFAULT_SETTINGS = { pageSize: 100, density: 'normal', fontSize: 'medium', fontStyle: 'normal', showGridLines: true, accentColor: 'blue' }
+const FONT_STYLE_MAP = {
+  normal: { weight: '400', style: 'normal' },
+  bold: { weight: '700', style: 'normal' },
+  italic: { weight: '400', style: 'italic' },
+}
 
 function MainApp() {
   // ResultsGrid wires this ref so Ctrl+S commits grid edits instead of saving query to file
@@ -51,12 +62,16 @@ function MainApp() {
   })
 
   const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('dbaccess:activeTabId') || null)
+  const [showAiChat, setShowAiChat] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('dbaccess:sidebarCollapsed') === 'true')
+  const [resultsPanelVisible, setResultsPanelVisible] = useState(() => localStorage.getItem('dbaccess:resultsPanelVisible') !== 'false')
   const [statusMessage, setStatusMessage] = useState({ text: 'Ready', type: 'info' })
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [showOpenAnything, setShowOpenAnything] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showFavoritesModal, setShowFavoritesModal] = useState(false)
   const [showTableStructure, setShowTableStructure] = useState(null) // { connId, tableName }
+  const [importPrompt, setImportPrompt] = useState(null) // { connId }
   const [allTablesCatalog, setAllTablesCatalog] = useState([])
   const [queryHistory, setQueryHistory] = useState(null)
 
@@ -71,8 +86,8 @@ function MainApp() {
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem('dbaccess:settings')
-      return saved ? JSON.parse(saved) : { pageSize: 100, density: 'normal', fontSize: 'medium' }
-    } catch { return { pageSize: 100, density: 'normal', fontSize: 'medium' } }
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS
+    } catch { return DEFAULT_SETTINGS }
   })
   const [showSettings, setShowSettings] = useState(false)
   const [showTour, setShowTour] = useState(() => !localStorage.getItem('dbaccess:tour-done'))
@@ -87,7 +102,7 @@ function MainApp() {
     } catch { return [] }
   })
   const [showDeleteHistory, setShowDeleteHistory] = useState(false)
-  const [truncatePending, setTruncatePending] = useState(null) // { connId, tableName, fkImpact, isLoading }
+  const [truncatePending, setTruncatePending] = useState(null) // { connId, tableNames, affected, isLoading }
   const [dropTablePending, setDropTablePending] = useState(null) // { connId, tableNames: string[] }
   const [sqlFileExecution, setSqlFileExecution] = useState(null) // progress state for streaming SQL file execution
 
@@ -132,12 +147,34 @@ function MainApp() {
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('dbaccess:theme', theme)
+    window.dbAccess?.setTitleBarOverlay?.(
+      theme === 'dark'
+        ? { color: '#0d1017', symbolColor: '#8891a8', height: 38 }
+        : { color: '#f5f7fa', symbolColor: '#4a5370', height: 38 }
+    )
   }, [theme])
+
+  // Suppress Chromium's default spellcheck/inspect-element context menu
+  // everywhere except text-editing zones — those areas render their own
+  // custom menus (Sidebar/TabBar/ResultsGrid), which already call
+  // preventDefault() themselves and are unaffected by this fallback.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const editable = e.target.closest?.('input, textarea, [contenteditable="true"], .cm-editor')
+      if (!editable) e.preventDefault()
+    }
+    window.addEventListener('contextmenu', handler)
+    return () => window.removeEventListener('contextmenu', handler)
+  }, [])
 
   React.useEffect(() => {
     localStorage.setItem('dbaccess:settings', JSON.stringify(settings))
     const sizes = { small: '11px', medium: '13px', large: '15px' }
-    document.documentElement.style.fontSize = sizes[settings.fontSize] || '13px'
+    document.documentElement.style.setProperty('--app-font-size', sizes[settings.fontSize] || '13px')
+    document.documentElement.setAttribute('data-accent', settings.accentColor || 'blue')
+    const fs = FONT_STYLE_MAP[settings.fontStyle] || FONT_STYLE_MAP.normal
+    document.documentElement.style.setProperty('--app-font-weight', fs.weight)
+    document.documentElement.style.setProperty('--app-font-style', fs.style)
   }, [settings])
 
   // Global safety: if any error/unhandled rejection/blur/visibility change occurs,
@@ -169,6 +206,27 @@ function MainApp() {
   const handleChangeSettings = (updates) => setSettings(prev => ({ ...prev, ...updates }))
 
   const activeTab = tabs.find(t => t.id === activeTabId)
+
+  // Tabs belong to whichever connection opened them. When the focused connection
+  // changes (e.g. via the sidebar's connection rail), only that connection's tabs
+  // show in the tab bar — the others are just hidden, not closed, and switching
+  // back restores them exactly as they were.
+  const visibleTabs = tabs.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+  const lastActiveTabByConnRef = React.useRef({})
+
+  useEffect(() => {
+    if (activeTab?.connectionId) lastActiveTabByConnRef.current[activeTab.connectionId] = activeTab.id
+  }, [activeTabId])
+
+  useEffect(() => {
+    if (!activeConnectionId) return
+    if (activeTab && (!activeTab.connectionId || activeTab.connectionId === activeConnectionId)) return
+    const remembered = lastActiveTabByConnRef.current[activeConnectionId]
+    const rememberedTab = remembered && tabs.find(t => t.id === remembered)
+    if (rememberedTab) { setActiveTabId(rememberedTab.id); return }
+    const firstMatch = tabs.find(t => t.connectionId === activeConnectionId)
+    setActiveTabId(firstMatch ? firstMatch.id : null)
+  }, [activeConnectionId])
 
   const showStatus = useCallback((text, type = 'info') => {
     const safeText = typeof text === 'object' ? JSON.stringify(text) : String(text)
@@ -220,6 +278,20 @@ function MainApp() {
   React.useEffect(() => {
     localStorage.setItem('dbaccess:sidebarCollapsed', sidebarCollapsed)
   }, [sidebarCollapsed])
+
+  React.useEffect(() => {
+    localStorage.setItem('dbaccess:resultsPanelVisible', resultsPanelVisible)
+  }, [resultsPanelVisible])
+
+  // Stable callback identities for props passed to memoized Sidebar/QueryEditor/
+  // ResultsGrid — inline arrow functions in JSX would defeat React.memo every render.
+  const handleToggleSidebar = useCallback(() => setSidebarCollapsed(c => !c), [])
+  const handleToggleResultsPanel = useCallback(() => setResultsPanelVisible(v => !v), [])
+  const handleOpenNewConnectionModal = useCallback(() => {
+    setEditingConnection(null)
+    setShowConnectionModal(true)
+  }, [])
+  const handleOpenFavorites = useCallback(() => setShowFavoritesModal(true), [])
 
   // --- Connection handlers ---
   const handleConnect = useCallback(async (config) => {
@@ -330,13 +402,18 @@ function MainApp() {
   }, [connections])
 
   // --- Safe Mode enforcement ---
-  const checkSafeMode = useCallback((query) => {
+  const checkSafeMode = useCallback(async (query) => {
     if (!safeMode) return true
     if (DESTRUCTIVE_PATTERN.test(query)) {
       const keyword = query.match(DESTRUCTIVE_PATTERN)?.[0]?.toUpperCase()
-      const confirmed = window.confirm(
-        `⚠️ Safe Mode Warning\n\nThis query contains a potentially destructive operation: ${keyword}\n\nAre you sure you want to execute this query?\n\n"${query.substring(0, 200)}${query.length > 200 ? '…' : ''}"`
-      )
+      const confirmed = await window.dbAccess.confirm({
+        type: 'warning',
+        title: 'Safe Mode Warning',
+        message: `This query contains a potentially destructive operation: ${keyword}`,
+        detail: `Are you sure you want to execute this query?\n\n"${query.substring(0, 200)}${query.length > 200 ? '…' : ''}"`,
+        confirmLabel: 'Run Query',
+        cancelLabel: 'Cancel',
+      })
       return confirmed
     }
     return true
@@ -345,7 +422,7 @@ function MainApp() {
   // --- Run query ---
   const handleRunQuery = useCallback(async (query) => {
     if (!activeTab || !activeTab.connectionId) return { success: false, error: 'No active tab/connection' }
-    if (!checkSafeMode(query)) {
+    if (!(await checkSafeMode(query))) {
       showStatus('Query blocked by Safe Mode', 'error')
       return { success: false, error: 'Blocked by Safe Mode' }
     }
@@ -368,6 +445,63 @@ function MainApp() {
     }
   }, [activeTab, activeTabId, checkSafeMode, saveToHistory, showStatus])
 
+  // --- Table browsing (server-side pagination) ---
+  // Builds the "browse this table" SELECT for a given page. Shared by the
+  // initial table-click open and by page navigation so both stay in sync
+  // (same ctid-for-Postgres handling row edit/delete depends on).
+  const buildTableBrowseQuery = useCallback((tableName, connId, limit, offset) => {
+    const connObj = connections.find(c => c.id === connId)
+    const isPostgres = !connObj?.type || ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connObj?.type)
+    const offsetClause = offset > 0 ? ` OFFSET ${offset}` : ''
+    return isPostgres
+      ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT ${limit}${offsetClause};`
+      : `SELECT * FROM ${tableName} LIMIT ${limit}${offsetClause};`
+  }, [connections])
+
+  // Fire-and-forget total row count for a table-browse tab, so the results
+  // grid can show "Page X of Y" instead of just "there might be more".
+  const fetchTableRowCount = useCallback(async (tabId, connId, tableName) => {
+    try {
+      const result = await window.dbAccess.executeQuery(connId, `SELECT COUNT(*) AS __db_total_count FROM ${tableName};`)
+      const raw = result?.data?.rows?.[0]?.__db_total_count
+      const total = Number(raw)
+      if (result?.success && !Number.isNaN(total)) {
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, tableTotalRows: total } : t))
+      }
+    } catch {
+      // Non-critical — pagination just falls back to "unknown total" mode.
+    }
+  }, [])
+
+  // Re-run a table-browse tab's query at a different page (Prev/Next/First/Last
+  // in the results grid). Always rebuilds the simple browse query from scratch
+  // rather than re-running whatever the user may have edited in the editor —
+  // page navigation is a "browse the table" action, not "re-run my query".
+  const handleTablePageChange = useCallback(async (tabId, newPage) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || !tab.tableFullName || !tab.connectionId || newPage < 0) return
+    const pageSize = settings.pageSize || 100
+    const query = buildTableBrowseQuery(tab.tableFullName, tab.connectionId, pageSize, newPage * pageSize)
+    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: true, query, tablePage: newPage } : t))
+    try {
+      const result = await window.dbAccess.executeQuery(tab.connectionId, query)
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: result, isRunning: false } : t))
+      if (!result.success) showStatus(`Error: ${result.error}`, 'error')
+    } catch (err) {
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: false } : t))
+      showStatus(`Error: ${err.message}`, 'error')
+    }
+  }, [tabs, settings.pageSize, buildTableBrowseQuery, showStatus])
+
+  // Backfill the total row count for a table-browse tab that doesn't have one
+  // yet — covers tabs restored from a previous session (persisted before this
+  // field existed, or simply never viewed since) without eagerly counting
+  // every open tab's table up front.
+  useEffect(() => {
+    if (!activeTab?.tableFullName || !activeTab.connectionId) return
+    if (activeTab.tableTotalRows != null) return
+    fetchTableRowCount(activeTab.id, activeTab.connectionId, activeTab.tableFullName)
+  }, [activeTab?.id, activeTab?.tableFullName, activeTab?.connectionId, activeTab?.tableTotalRows, fetchTableRowCount])
 
   // --- Explain query ---
   const handleExplainQuery = useCallback(async (query) => {
@@ -482,23 +616,23 @@ function MainApp() {
     setActiveTabId(tabId)
   }, [activeConnectionId, connections])
 
-  const handleNewCompareTab = useCallback(() => {
-    const existing = tabs.find(t => t.type === 'compare')
-    if (existing) { setActiveTabId(existing.id); return }
-    const tabId = genId()
-    setTabs(prev => [...prev, {
-      id: tabId, connectionId: '', type: 'compare', title: 'DB Compare',
-      query: '', results: null, isRunning: false,
-    }])
-    setActiveTabId(tabId)
-  }, [tabs])
-
   const handleNewBroadcastTab = useCallback(() => {
     const existing = tabs.find(t => t.type === 'broadcast')
     if (existing) { setActiveTabId(existing.id); return }
     const tabId = genId()
     setTabs(prev => [...prev, {
       id: tabId, connectionId: '', type: 'broadcast', title: 'Broadcast',
+      query: '', results: null, isRunning: false,
+    }])
+    setActiveTabId(tabId)
+  }, [tabs])
+
+  const handleNewCompareTab = useCallback(() => {
+    const existing = tabs.find(t => t.type === 'compare')
+    if (existing) { setActiveTabId(existing.id); return }
+    const tabId = genId()
+    setTabs(prev => [...prev, {
+      id: tabId, connectionId: '', type: 'compare', title: 'DB Compare',
       query: '', results: null, isRunning: false,
     }])
     setActiveTabId(tabId)
@@ -528,6 +662,10 @@ function MainApp() {
       showStatus(`SQL file error: ${result.error}`, 'error')
     }
   }, [showStatus])
+
+  const handleRunSqlFileForActiveTab = useCallback(() => {
+    handleRunSqlFile(activeTab?.connectionId)
+  }, [handleRunSqlFile, activeTab?.connectionId])
 
   // Register progress listener once
   React.useEffect(() => {
@@ -606,7 +744,7 @@ function MainApp() {
 
   const handleScaffoldMaterializedView = useCallback((connId) => {
     const conn = connections.find(c => c.id === connId)
-    const isPostgres = conn?.type === 'postgres'
+    const isPostgres = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(conn?.type)
     const tabId = genId()
     const scaffold = isPostgres
       ? `CREATE MATERIALIZED VIEW public.my_materialized_view AS\nSELECT\n  column1,\n  column2,\n  COUNT(*) AS total\nFROM public.source_table\nGROUP BY column1, column2;`
@@ -637,6 +775,14 @@ function MainApp() {
     setDropTablePending({ connId, tableNames: [tableName] })
   }, [])
 
+  const handleDeleteAllTables = useCallback(async (connId) => {
+    const result = await window.dbAccess.getTables(connId)
+    if (!result.success) { showStatus(`Failed to load tables: ${result.error}`, 'error'); return }
+    const tableNames = result.data.filter(t => !t.type || t.type === 'BASE TABLE').map(t => t.fullName)
+    if (tableNames.length === 0) { showStatus('No tables to delete in this database', 'info'); return }
+    setDropTablePending({ connId, tableNames, defaultCascade: true })
+  }, [showStatus])
+
   const handleDeleteMultipleTables = useCallback((connId, tableNames) => {
     setDropTablePending({ connId, tableNames })
   }, [])
@@ -649,23 +795,25 @@ function MainApp() {
     const connType = conn?.type || 'postgres'
     try {
       showStatus(`Dropping ${tableNames.length} table${tableNames.length > 1 ? 's' : ''}...`, 'info')
-      if (connType === 'mysql' && cascade) {
+      const isMysqlWire = ['mysql', 'mariadb'].includes(connType)
+      const isPgWire = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connType)
+      if (isMysqlWire && cascade) {
         await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 0;')
       }
       for (const tableName of tableNames) {
-        const sql = connType === 'postgres'
+        const sql = isPgWire
           ? `DROP TABLE ${tableName}${cascade ? ' CASCADE' : ''};`
           : `DROP TABLE ${tableName};`
         const result = await window.dbAccess.executeQuery(connId, sql)
         if (!result.success) {
-          if (connType === 'mysql' && cascade) {
+          if (isMysqlWire && cascade) {
             await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;').catch(() => {})
           }
           showStatus(`Failed to drop ${tableName.split('.').pop()}: ${result.error}`, 'error')
           return
         }
       }
-      if (connType === 'mysql' && cascade) {
+      if (isMysqlWire && cascade) {
         await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;')
       }
       showStatus(
@@ -683,46 +831,77 @@ function MainApp() {
     }
   }, [dropTablePending, connections, showStatus])
 
-  const handleTruncateTable = useCallback(async (connId, tableName) => {
-    // Show modal with FK impact check
-    setTruncatePending({ connId, tableName, fkImpact: [], isLoading: true })
-    if (window.dbAccess?.getFkImpact) {
-      const res = await window.dbAccess.getFkImpact(connId, tableName, []).catch(() => ({ success: false }))
-      setTruncatePending({ connId, tableName, fkImpact: res.success ? (res.data || []) : [], isLoading: false })
-    } else {
-      setTruncatePending(prev => prev ? { ...prev, isLoading: false } : prev)
-    }
+  const handleTruncateTable = useCallback(async (connId, tableNames) => {
+    const names = Array.isArray(tableNames) ? tableNames : [tableNames]
+    setTruncatePending({ connId, tableNames: names, affected: [], isLoading: true })
+    let affected = []
+    try {
+      const res = await window.dbAccess.getSchemaFull(connId)
+      if (res.success) {
+        // Tables that reference the selection, directly or transitively, would be emptied by CASCADE
+        const reached = new Set(names)
+        let grew = true
+        while (grew) {
+          grew = false
+          res.data.foreignKeys.forEach(fk => {
+            if (reached.has(fk.targetTable) && !reached.has(fk.sourceTable)) {
+              reached.add(fk.sourceTable)
+              grew = true
+            }
+          })
+        }
+        affected = [...reached].filter(t => !names.includes(t))
+      }
+    } catch { /* dependency list is informational */ }
+    setTruncatePending(prev => prev ? { ...prev, affected, isLoading: false } : prev)
   }, [])
 
-  const handleConfirmTruncate = useCallback(async () => {
+  const handleConfirmTruncate = useCallback(async ({ cascade, restartIdentity }) => {
     if (!truncatePending) return
-    const { connId, tableName } = truncatePending
+    const { connId, tableNames } = truncatePending
     setTruncatePending(null)
+    const connType = connections.find(c => c.id === connId)?.type || 'postgres'
+    const isMysqlWire = ['mysql', 'mariadb'].includes(connType)
+    const isPgWire = ['postgres', 'cockroachdb', 'greenplum', 'redshift'].includes(connType)
+    const label = tableNames.length === 1 ? tableNames[0] : `${tableNames.length} tables`
     try {
-      showStatus(`Truncating ${tableName}...`, 'info')
-      const result = await window.dbAccess.executeQuery(connId, `TRUNCATE TABLE ${tableName};`)
-      if (result.success) {
-        showStatus(`Table ${tableName} truncated`, 'success')
-        // Log to history (no row data for truncate)
-        handleSaveDeleteHistory({
-          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          timestamp: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          connectionId: connId,
-          connectionName: connections.find(c => c.id === connId)?.name || '',
-          tableName,
-          operation: 'truncate',
-          rowCount: 0,
-          rows: [],
-          cascadeRows: [],
-          cascadeRowCount: 0,
-          restorable: false,
-        })
+      showStatus(`Truncating ${label}...`, 'info')
+      let statements
+      if (isPgWire) {
+        // One statement keeps the whole batch atomic and lets selected tables reference each other
+        statements = [`TRUNCATE TABLE ${tableNames.join(', ')}${restartIdentity ? ' RESTART IDENTITY' : ''}${cascade ? ' CASCADE' : ''};`]
       } else {
-        showStatus(`Truncate failed: ${result.error}`, 'error')
+        statements = tableNames.map(t => `TRUNCATE TABLE ${t};`)
       }
+      if (isMysqlWire && cascade) await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 0;')
+      let failure = null
+      for (const sql of statements) {
+        const result = await window.dbAccess.executeQuery(connId, sql)
+        if (!result.success) { failure = result.error; break }
+      }
+      if (isMysqlWire && cascade) await window.dbAccess.executeQuery(connId, 'SET FOREIGN_KEY_CHECKS = 1;').catch(() => {})
+      if (failure) {
+        showStatus(`Truncate failed: ${failure}`, 'error')
+        return
+      }
+      showStatus(`${label} truncated`, 'success')
+      tableNames.forEach(tableName => handleSaveDeleteHistory({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        timestamp: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        connectionId: connId,
+        connectionName: connections.find(c => c.id === connId)?.name || '',
+        tableName,
+        operation: 'truncate',
+        rowCount: 0,
+        rows: [],
+        cascadeRows: [],
+        cascadeRowCount: 0,
+        restorable: false,
+      }))
+      setSidebarRefreshKey(prev => prev + 1)
     } catch (err) {
-      showStatus(`Error truncating table: ${err.message}`, 'error')
+      showStatus(`Error truncating: ${err.message}`, 'error')
     }
   }, [truncatePending, showStatus, connections, handleSaveDeleteHistory])
 
@@ -734,7 +913,12 @@ function MainApp() {
   const handleRefreshQuery = useCallback(() => {
     if (!activeTab?.query?.trim()) return
     handleRunQuery(activeTab.query)
-  }, [activeTab, handleRunQuery])
+    // Row count can drift while browsing (inserts/deletes elsewhere) — keep
+    // "Page X of Y" honest by refreshing it alongside the visible page.
+    if (activeTab.tableFullName && activeTab.connectionId) {
+      fetchTableRowCount(activeTab.id, activeTab.connectionId, activeTab.tableFullName)
+    }
+  }, [activeTab, handleRunQuery, fetchTableRowCount])
 
   const handleRenameTab = useCallback((tabId, newTitle) => {
     if (!newTitle?.trim()) return
@@ -753,31 +937,47 @@ function MainApp() {
     setShowTableStructure({ connId, tableName })
   }, [])
 
-  const handleImportCSVFromSidebar = useCallback(async (connId) => {
-    const tableName = prompt('Enter target table name for CSV import:')
-    if (!tableName || !tableName.trim()) return
-    const result = await window.dbAccess.importData(connId, tableName.trim())
-    if (result.success) showStatus(`Imported ${result.insertedCount} rows into ${tableName.trim()}`, 'success')
+  // window.prompt() is unsupported in Electron, so ask for the table name in-app.
+  const handleImportCSVFromSidebar = useCallback((connId) => {
+    if (!connId) return showStatus('No active connection', 'error')
+    setImportPrompt({ connId })
+  }, [showStatus])
+
+  const runCsvImport = useCallback(async (connId, tableName) => {
+    const result = await window.dbAccess.importData(connId, tableName)
+    if (result.success) showStatus(`Imported ${result.insertedCount} rows into ${tableName}`, 'success')
     else if (result.error !== 'Import cancelled') showStatus(`Import failed: ${result.error}`, 'error')
   }, [showStatus])
+
+  const handleImportForActiveTab = useCallback(() => {
+    handleImportCSVFromSidebar(activeTab?.connectionId)
+  }, [handleImportCSVFromSidebar, activeTab?.connectionId])
 
   const handleCloseTab = useCallback((tabId) => {
     setTabs(prev => {
       const remaining = prev.filter(t => t.id !== tabId)
-      if (activeTabId === tabId && remaining.length > 0) setActiveTabId(remaining[remaining.length - 1].id)
-      else if (remaining.length === 0) setActiveTabId(null)
+      if (activeTabId === tabId) {
+        // Only replace with another tab from the currently focused connection —
+        // never jump the view into a different (hidden) connection's tab.
+        const visibleRemaining = remaining.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+        setActiveTabId(visibleRemaining.length > 0 ? visibleRemaining[visibleRemaining.length - 1].id : null)
+      }
       return remaining
     })
-  }, [activeTabId])
+  }, [activeTabId, activeConnectionId])
 
+  // "Close All" / "Close Others" only act on the currently visible tabs (the
+  // focused connection's) — tabs hidden because they belong to another
+  // connection are left untouched, matching visibleTabs' filter above.
   const handleCloseAllTabs = useCallback(() => {
-    setTabs([]); setActiveTabId(null)
-  }, [])
+    setTabs(prev => prev.filter(t => t.connectionId && t.connectionId !== activeConnectionId))
+    setActiveTabId(null)
+  }, [activeConnectionId])
 
   const handleCloseOtherTabs = useCallback((tabId) => {
-    setTabs(prev => prev.filter(t => t.id === tabId))
+    setTabs(prev => prev.filter(t => t.id === tabId || (t.connectionId && t.connectionId !== activeConnectionId)))
     setActiveTabId(tabId)
-  }, [])
+  }, [activeConnectionId])
 
   const handleTableClick = useCallback(async (tableName, connectionId, activeDb) => {
     const connId = connectionId || activeConnectionId
@@ -795,16 +995,17 @@ function MainApp() {
 
     const tabId = genId()
     const connObj = connections.find(c => c.id === connId)
-    const isPostgres = !connObj?.type || connObj?.type === 'postgres'
-    const query = isPostgres
-      ? `SELECT ${tableName}.*, ctid AS __db_ctid FROM ${tableName} LIMIT 100;`
-      : `SELECT * FROM ${tableName} LIMIT 100;`
+    const pageSize = settings.pageSize || 100
+    // Without ctid, row edits/deletes fall back to matching on every column's
+    // value, which silently no-ops (or deletes the wrong row) on duplicate rows
+    // or values that don't round-trip exactly (floats, timestamps, jsonb key order).
+    const query = buildTableBrowseQuery(tableName, connId, pageSize, 0)
     const dbName = activeDb || connObj?.database || ''
     const shortName = tableName.split('.').pop()
     const tabTitle = dbName ? `${dbName}.${shortName}` : tableName
     setTabs(prev => [...prev, {
       id: tabId, connectionId: connId, title: tabTitle, tableFullName: tableName,
-      query, results: null, isRunning: true,
+      query, results: null, isRunning: true, tablePage: 0, tableTotalRows: null,
     }])
     setActiveTabId(tabId)
     setActiveConnectionId(connId)
@@ -817,7 +1018,10 @@ function MainApp() {
       setTabs(prev => prev.map(t => t.id === tabId ? { ...t, isRunning: false } : t))
       showStatus(`Error: ${err.message}`, 'error')
     }
-  }, [activeConnectionId, tabs, showStatus])
+    // Runs in parallel with the row fetch above — total count isn't needed
+    // to show the first page, only to label "Page 1 of N" once it arrives.
+    fetchTableRowCount(tabId, connId, tableName)
+  }, [activeConnectionId, tabs, showStatus, settings.pageSize, buildTableBrowseQuery, fetchTableRowCount])
 
   const handleOpenAnythingTrigger = useCallback(async () => {
     const connected = connections.filter(c => c.connected)
@@ -884,7 +1088,8 @@ function MainApp() {
   React.useEffect(() => {
     const handleKeyDown = (e) => {
       const isMod = e.ctrlKey || e.metaKey
-      if (isMod && e.key === 't') { e.preventDefault(); handleNewTab() }
+      if (isMod && e.shiftKey && (e.key === 'N' || e.key === 'n')) { e.preventDefault(); window.dbAccess.newWindow() }
+      else if (isMod && e.key === 't') { e.preventDefault(); handleNewTab() }
       else if (isMod && e.key === 'w') { e.preventDefault(); if (activeTabId) handleCloseTab(activeTabId) }
       else if (isMod && e.key === 's') {
         e.preventDefault()
@@ -896,21 +1101,26 @@ function MainApp() {
       else if (isMod && e.key === '[') {
         e.preventDefault()
         setTabs(prev => {
-          if (prev.length <= 1) return prev
-          const idx = prev.findIndex(t => t.id === activeTabId)
-          setActiveTabId(prev[(idx - 1 + prev.length) % prev.length].id)
+          // Cycle only within the focused connection's visible tabs.
+          const visible = prev.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+          if (visible.length <= 1) return prev
+          const idx = visible.findIndex(t => t.id === activeTabId)
+          setActiveTabId(visible[(idx - 1 + visible.length) % visible.length].id)
           return prev
         })
       } else if (isMod && e.key === ']') {
         e.preventDefault()
         setTabs(prev => {
-          if (prev.length <= 1) return prev
-          const idx = prev.findIndex(t => t.id === activeTabId)
-          setActiveTabId(prev[(idx + 1) % prev.length].id)
+          const visible = prev.filter(t => !t.connectionId || t.connectionId === activeConnectionId)
+          if (visible.length <= 1) return prev
+          const idx = visible.findIndex(t => t.id === activeTabId)
+          setActiveTabId(visible[(idx + 1) % visible.length].id)
           return prev
         })
       } else if (isMod && e.key === 'k') {
         e.preventDefault(); handleOpenAnythingTrigger()
+      } else if (isMod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault(); setShowCommandPalette(true)
       } else if (isMod && e.key === 'r') {
         e.preventDefault(); handleRefreshQuery()
       } else if (isMod && (e.key === '?' || (e.shiftKey && e.key === 'K'))) {
@@ -919,18 +1129,74 @@ function MainApp() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleNewTab, handleCloseTab, handleSaveQuery, handleOpenAnythingTrigger, handleRefreshQuery, activeTabId, tabs.length])
+  }, [handleNewTab, handleCloseTab, handleSaveQuery, handleOpenAnythingTrigger, handleRefreshQuery, activeTabId, activeConnectionId, tabs.length])
+
+  // --- Titlebar connection-status pill ---
+  const titlebarConn = connections.find(c => c.id === (activeTab?.connectionId || activeConnectionId))
+  const titlebarPill = titlebarConn ? [
+    titlebarConn.name,
+    [
+      DB_TYPES.find(d => d.id === titlebarConn.type)?.label || titlebarConn.type?.toUpperCase() || 'DB',
+      titlebarConn.host,
+      titlebarConn.database,
+      activeTab?.tableFullName,
+    ].filter(Boolean).join(' : '),
+  ].filter(Boolean).join('  |  ') : ''
+
+  // --- Command palette (Ctrl+Shift+P) ---
+  const commandPaletteCommands = [
+    { id: 'new-connection', label: 'New Connection', group: 'Connection', action: handleOpenNewConnectionModal },
+    { id: 'new-tab', label: 'New Query Tab', group: 'Tabs', shortcut: 'Ctrl+T', action: () => handleNewTab() },
+    { id: 'new-window', label: 'New Window', group: 'Window', shortcut: 'Ctrl+Shift+N', action: () => window.dbAccess.newWindow() },
+    { id: 'toggle-sidebar', label: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar', group: 'View', shortcut: 'Ctrl+\\', action: handleToggleSidebar },
+    { id: 'toggle-results', label: resultsPanelVisible ? 'Hide Results Panel' : 'Show Results Panel', group: 'View', action: handleToggleResultsPanel },
+    { id: 'toggle-theme', label: theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme', group: 'View', action: () => setTheme(t => t === 'dark' ? 'light' : 'dark') },
+    { id: 'db-compare', label: 'DB Compare & Sync', group: 'Tools', action: handleNewCompareTab },
+    { id: 'broadcast', label: 'Multi-DB Broadcast', group: 'Tools', action: handleNewBroadcastTab },
+    { id: 'toggle-safe-mode', label: safeMode ? 'Turn Off Safe Mode' : 'Turn On Safe Mode', group: 'Query', action: () => setSafeMode(v => { const next = !v; localStorage.setItem('dbaccess:safeMode', next); return next }) },
+    { id: 'open-settings', label: 'Open Settings', group: 'Preferences', action: () => setShowSettings(true) },
+    { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', group: 'Help', shortcut: 'Ctrl+?', action: () => setShowKeyboardShortcuts(true) },
+    { id: 'restart-tour', label: 'Restart Tour', group: 'Help', action: () => setShowTour(true) },
+  ]
 
   return (
     <div className="app">
       <div className="app-titlebar">
-        <div className="app-titlebar-drag">
-          <img src="/logo.png" alt="DB Access Logo" width="24" height="24" style={{ objectFit: 'contain' }} onError={(e) => e.target.style.display='none'} />
-          <span className="app-title">DB Access</span>
+        <div className="app-titlebar-left">
+          <div className="app-titlebar-drag">
+            <img src="/logo.png" alt="DB Access Logo" width="20" height="20" style={{ objectFit: 'contain' }} onError={(e) => e.target.style.display='none'} />
+            <span className="app-title">DB Access</span>
+          </div>
+          <button className="app-titlebar-icon-btn" onClick={handleToggleSidebar} title="Toggle Sidebar (Ctrl+\)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          </button>
+          <button className="app-titlebar-icon-btn" onClick={() => setSidebarRefreshKey(k => k + 1)} title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
         </div>
-        <button className="app-titlebar-help" onClick={() => setShowKeyboardShortcuts(true)} title="Keyboard Shortcuts (Ctrl+?)" style={{ position: 'absolute', right: '12px' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        </button>
+        <div className="app-titlebar-center">
+          {titlebarPill && <div className="app-titlebar-pill" title={titlebarPill}>{titlebarPill}</div>}
+        </div>
+        <div className="app-titlebar-right">
+          <button className="app-titlebar-icon-btn" onClick={() => window.dbAccess.newWindow()} title="New Window (Ctrl+Shift+N)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="12" y1="14" x2="12" y2="17"/><line x1="10.5" y1="15.5" x2="13.5" y2="15.5"/></svg>
+          </button>
+          {titlebarConn && (
+            <button className="app-titlebar-icon-btn" onClick={() => handleNewMetricsTab(titlebarConn.id)} title="Database Metrics">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+            </button>
+          )}
+          <button className="app-titlebar-icon-btn" onClick={() => setShowKeyboardShortcuts(true)} title="Keyboard Shortcuts (Ctrl+?)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          </button>
+          <button
+            className={`app-titlebar-icon-btn ${resultsPanelVisible ? 'active' : ''}`}
+            onClick={handleToggleResultsPanel}
+            title={resultsPanelVisible ? 'Hide Results Panel' : 'Show Results Panel'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 14h18"/></svg>
+          </button>
+        </div>
       </div>
       <div className="app-body">
         <Sidebar
@@ -940,9 +1206,9 @@ function MainApp() {
           collapsed={sidebarCollapsed}
           refreshKey={sidebarRefreshKey}
           queryHistory={queryHistory}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggle={handleToggleSidebar}
           onSelectConnection={setActiveConnectionId}
-          onNewConnection={() => { setEditingConnection(null); setShowConnectionModal(true) }}
+          onNewConnection={handleOpenNewConnectionModal}
           onConnectSaved={handleConnectSaved}
           onDeleteSaved={handleDeleteSaved}
           onDisconnect={handleDisconnect}
@@ -965,10 +1231,11 @@ function MainApp() {
           onTruncateTable={handleTruncateTable}
           onShowTableStructure={handleShowTableStructure}
           onDeleteMultipleTables={handleDeleteMultipleTables}
+          onDeleteAllTables={handleDeleteAllTables}
         />
         <div className="app-main">
           <TabBar
-            tabs={tabs}
+            tabs={visibleTabs}
             activeTabId={activeTabId}
             onSelectTab={setActiveTabId}
             onCloseTab={handleCloseTab}
@@ -986,10 +1253,10 @@ function MainApp() {
                 <MetricsBoard connectionId={activeTab.connectionId} />
               ) : activeTab.type === 'users' ? (
                 <UserManagementPanel connectionId={activeTab.connectionId} />
-              ) : activeTab.type === 'compare' ? (
-                <DBComparePanel connections={connections} />
               ) : activeTab.type === 'broadcast' ? (
                 <BroadcastPanel connections={connections} />
+              ) : activeTab.type === 'compare' ? (
+                <DBComparePanel connections={connections} safeMode={safeMode} onToggleSafeMode={(val) => { setSafeMode(val); localStorage.setItem('dbaccess:safeMode', val) }} />
               ) : (
                 <>
                   <QueryEditor
@@ -999,30 +1266,41 @@ function MainApp() {
                     onExport={handleExport}
                     onImport={handleImport}
                     onExplain={handleExplainQuery}
-                    onOpenFavorites={() => setShowFavoritesModal(true)}
+                    onOpenFavorites={handleOpenFavorites}
                     onSaveFavorite={handleSaveFavorite}
                     isRunning={activeTab.isRunning}
+                    aiChatOpen={showAiChat}
+                    onToggleAiChat={() => setShowAiChat(v => !v)}
                     activeConnectionId={activeTab.connectionId}
                     connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
+                    dbType={connections.find(c => c.id === activeTab.connectionId)?.type}
                     queryError={activeTab.queryError}
-                    onRunSqlFile={() => handleRunSqlFile(activeTab.connectionId)}
+                    onRunSqlFile={handleRunSqlFileForActiveTab}
+                    theme={theme}
+                    fillHeight={!resultsPanelVisible}
                   />
-                  <ResultsGrid
-                    results={activeTab.results}
-                    isRunning={activeTab.isRunning}
-                    onExport={handleExport}
-                    onRunQuery={(sql) => handleRunQuery(sql)}
-                    onRefresh={handleRefreshQuery}
-                    onSetQuery={handleSetQuery}
-                    onImport={() => handleImportCSVFromSidebar(activeTab.connectionId)}
-                    sourceTable={activeTab.tableFullName || null}
-                    pageSize={settings.pageSize}
-                    density={settings.density}
-                    connectionId={activeTab.connectionId}
-                    connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
-                    onSaveDeleteHistory={handleSaveDeleteHistory}
-                    ctrlSRef={gridCommitRef}
-                  />
+                  {resultsPanelVisible && (
+                    <ResultsGrid
+                      results={activeTab.results}
+                      isRunning={activeTab.isRunning}
+                      onExport={handleExport}
+                      onRunQuery={handleRunQuery}
+                      onRefresh={handleRefreshQuery}
+                      onSetQuery={handleSetQuery}
+                      onImport={handleImportForActiveTab}
+                      sourceTable={activeTab.tableFullName || null}
+                      pageSize={settings.pageSize}
+                      density={settings.density}
+                      showGridLines={settings.showGridLines}
+                      connectionId={activeTab.connectionId}
+                      connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
+                      onSaveDeleteHistory={handleSaveDeleteHistory}
+                      ctrlSRef={gridCommitRef}
+                      dbTotalRowCount={activeTab.tableTotalRows ?? null}
+                      dbPage={activeTab.tablePage ?? 0}
+                      onDbPageChange={activeTab.tableFullName ? (newPage) => handleTablePageChange(activeTab.id, newPage) : undefined}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -1032,14 +1310,19 @@ function MainApp() {
                 <img src="/logo.png" alt="DB Access Logo" style={{ maxWidth: '200px', marginBottom: '20px', opacity: 0.8 }} onError={(e) => { e.target.style.display='none' }} />
                 <h2>Welcome to DB Access</h2>
                 <p>Connect to a database to start querying</p>
-                <button className="btn-primary" onClick={() => { setEditingConnection(null); setShowConnectionModal(true) }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-                  New Connection
-                </button>
               </div>
             </div>
           )}
         </div>
+        <AiChatPanel
+          open={showAiChat}
+          onClose={() => setShowAiChat(false)}
+          connections={connections}
+          activeConnectionId={activeTab?.connectionId}
+          onInsertSql={handleSetQuery}
+          onRunSql={handleRunQuery}
+          onNewTab={handleNewTab}
+        />
       </div>
       <StatusBar
         message={statusMessage}
@@ -1087,12 +1370,11 @@ function MainApp() {
 
       {/* Truncate Confirmation Modal */}
       {truncatePending && (
-        <DeleteConfirmModal
-          mode="truncate"
-          tableName={truncatePending.tableName}
-          rows={[]}
-          fkImpact={truncatePending.fkImpact}
+        <TruncateTablesModal
+          tables={truncatePending.tableNames}
+          affected={truncatePending.affected}
           isLoading={truncatePending.isLoading}
+          connectionType={connections.find(c => c.id === truncatePending.connId)?.type || 'postgres'}
           onConfirm={handleConfirmTruncate}
           onCancel={() => setTruncatePending(null)}
         />
@@ -1102,6 +1384,7 @@ function MainApp() {
       {dropTablePending && (
         <DropTableModal
           tables={dropTablePending.tableNames}
+          defaultCascade={!!dropTablePending.defaultCascade}
           connectionType={connections.find(c => c.id === dropTablePending.connId)?.type || 'postgres'}
           onConfirm={handleConfirmDropTables}
           onCancel={() => setDropTablePending(null)}
@@ -1133,6 +1416,12 @@ function MainApp() {
           onClose={() => setShowOpenAnything(false)}
         />
       )}
+      {showCommandPalette && (
+        <CommandPalette
+          commands={commandPaletteCommands}
+          onClose={() => setShowCommandPalette(false)}
+        />
+      )}
       {showFavoritesModal && (
         <QueryFavoritesModal
           currentQuery={activeTab?.query || ''}
@@ -1159,6 +1448,17 @@ function MainApp() {
         />
       )}
 
+      {importPrompt && (
+        <TextPromptModal
+          title="Import CSV"
+          label="Target table name (schema.table allowed). Column names come from the CSV header."
+          placeholder="e.g. public.users"
+          confirmLabel="Choose file…"
+          onCancel={() => setImportPrompt(null)}
+          onSubmit={(name) => { const { connId } = importPrompt; setImportPrompt(null); runCsvImport(connId, name) }}
+        />
+      )}
+
       {showTableStructure && (
         <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowTableStructure(null)}>
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '12px', width: '640px', maxHeight: '72vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -1177,31 +1477,58 @@ function MainApp() {
 // ── License gate wrapper ──────────────────────────────────────────────────────
 // Sits above MainApp so MainApp's hooks are always called the same number of
 // times regardless of license state (Rules of Hooks compliance).
+const ACTIVATION_DISABLED = true // TODO: re-enable license gate
+
 export default function App() {
   const [licenseStatus, setLicenseStatus] = useState('checking')
+  const [startupMessage, setStartupMessage]  = useState('')
 
   useEffect(() => {
-    if (!window.dbAccess?.license) {
+    if (ACTIVATION_DISABLED) {
       setLicenseStatus('valid')
       return
     }
+
+    // Fail CLOSED: if the license bridge is missing for any reason, block access.
+    if (!window.dbAccess?.license) {
+      setLicenseStatus('invalid')
+      return
+    }
+
+    // 15-second hard timeout — if IPC hangs for any reason, block access.
+    const timeout = setTimeout(() => setLicenseStatus('invalid'), 15000)
+
     window.dbAccess.license.validate()
-      .then(result => setLicenseStatus(result.valid ? 'valid' : 'invalid'))
-      .catch(() => setLicenseStatus('invalid'))
+      .then(result => {
+        clearTimeout(timeout)
+        if (result.valid) {
+          setLicenseStatus('valid')
+        } else {
+          if (result.reason) setStartupMessage(result.reason)
+          setLicenseStatus('invalid')
+        }
+      })
+      .catch(() => {
+        clearTimeout(timeout)
+        setLicenseStatus('invalid')
+      })
+
+    return () => clearTimeout(timeout)
   }, [])
 
+  // License was pre-validated in the main process before the window was shown,
+  // so this 'checking' state resolves in a single IPC round-trip (no server call).
+  // Render nothing — the window is already painted in backgroundColor so there
+  // is no visible flash before the real UI appears.
   if (licenseStatus === 'checking') {
-    return (
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                    height:'100vh', background:'var(--bg-primary)',
-                    color:'var(--text-tertiary)', fontSize:13 }}>
-        Verifying license...
-      </div>
-    )
+    return null
   }
 
   if (licenseStatus === 'invalid') {
-    return <ActivationScreen onActivated={() => setLicenseStatus('valid')} />
+    return <ActivationScreen
+      startupMessage={startupMessage}
+      onActivated={() => setLicenseStatus('valid')}
+    />
   }
 
   return <MainApp />
