@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import Sidebar from './components/Sidebar'
+import AiChatPanel from './components/AiChatPanel'
 import TabBar from './components/TabBar'
 import QueryEditor from './components/QueryEditor'
 import ResultsGrid from './components/ResultsGrid'
@@ -61,6 +62,7 @@ function MainApp() {
   })
 
   const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('dbaccess:activeTabId') || null)
+  const [showAiChat, setShowAiChat] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('dbaccess:sidebarCollapsed') === 'true')
   const [resultsPanelVisible, setResultsPanelVisible] = useState(() => localStorage.getItem('dbaccess:resultsPanelVisible') !== 'false')
   const [statusMessage, setStatusMessage] = useState({ text: 'Ready', type: 'info' })
@@ -1267,6 +1269,8 @@ function MainApp() {
                     onOpenFavorites={handleOpenFavorites}
                     onSaveFavorite={handleSaveFavorite}
                     isRunning={activeTab.isRunning}
+                    aiChatOpen={showAiChat}
+                    onToggleAiChat={() => setShowAiChat(v => !v)}
                     activeConnectionId={activeTab.connectionId}
                     connectionName={connections.find(c => c.id === activeTab.connectionId)?.name || ''}
                     dbType={connections.find(c => c.id === activeTab.connectionId)?.type}
@@ -1310,6 +1314,15 @@ function MainApp() {
             </div>
           )}
         </div>
+        <AiChatPanel
+          open={showAiChat}
+          onClose={() => setShowAiChat(false)}
+          connections={connections}
+          activeConnectionId={activeTab?.connectionId}
+          onInsertSql={handleSetQuery}
+          onRunSql={handleRunQuery}
+          onNewTab={handleNewTab}
+        />
       </div>
       <StatusBar
         message={statusMessage}

@@ -180,9 +180,9 @@
   transition: background var(--transition-fast); position: relative;
 }
 .sidebar-conn-header:hover { background: var(--bg-hover); }
-.sidebar-conn-header:hover .sidebar-conn-actions { opacity: 1; }
+.sidebar-conn-header:hover .sidebar-conn-actions { opacity: 1; pointer-events: auto; }
 .sidebar-conn-actions {
-  position: absolute; right: 4px; display: flex; gap: 2px; opacity: 0;
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; opacity: 0; pointer-events: none;
   transition: opacity var(--transition-fast);
 }
 .sidebar-action-btn {

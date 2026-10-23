@@ -7,12 +7,35 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+const NL = String.fromCharCode(10)
+
 function formatNum(n) {
   return n.toLocaleString()
 }
 
 export default function SqlFileProgress({ execution, onCancel, onClose }) {
   const [showErrors, setShowErrors] = useState(false)
+  const [copied, setCopied] = useState('')
+
+  const copyText = async (key, text) => {
+    try { await navigator.clipboard.writeText(text) } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text; document.body.appendChild(ta); ta.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(ta)
+    }
+    setCopied(key)
+    setTimeout(() => setCopied(c => (c === key ? '' : c)), 1500)
+  }
+  const allErrorsText = (list) => list.map((e, i) => [`#${i + 1} ${e.msg}`, e.stmt || ''].join(NL)).join(NL + NL)
+  const downloadErrors = (list, name) => {
+    const blob = new Blob([allErrorsText(list)], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `${(name || 'sql').replace(/\.[^.]+$/, '')}-errors.txt`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   if (!execution) return null
 
@@ -85,16 +108,28 @@ export default function SqlFileProgress({ execution, onCancel, onClose }) {
                 <path d={showErrors ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'}/>
               </svg>
               {showErrors ? 'Hide' : 'Show'} {errors.length} error{errors.length !== 1 ? 's' : ''}
+              {errCount > errors.length ? ` (of ${formatNum(errCount)})` : ''}
             </button>
             {showErrors && (
-              <div className="sqlfp-errors-list">
-                {errors.map((e, i) => (
-                  <div key={i} className="sqlfp-error-entry">
-                    <div className="sqlfp-error-msg">{e.msg}</div>
-                    <code className="sqlfp-error-stmt">{e.stmt}</code>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="sqlfp-errors-tools">
+                  <button onClick={() => copyText('all', allErrorsText(errors))}>{copied === 'all' ? 'Copied!' : 'Copy all'}</button>
+                  <button onClick={() => downloadErrors(errors, fileName)}>Download .txt</button>
+                </div>
+                <div className="sqlfp-errors-list">
+                  {errors.map((e, i) => (
+                    <div key={i} className="sqlfp-error-entry">
+                      <div className="sqlfp-error-head">
+                        <div className="sqlfp-error-msg">{e.msg}</div>
+                        <button className="sqlfp-error-copy" onClick={() => copyText(i, [e.msg, e.stmt || ''].join(NL))}>
+                          {copied === i ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                      <code className="sqlfp-error-stmt">{e.stmt}</code>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}

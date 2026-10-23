@@ -294,9 +294,18 @@ function makeLogger() {
 
 // ── Prompt construction ────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a SQL generation assistant embedded in a database client. Given a database schema and a natural-language request, respond with ONLY a single valid SQL query for the given SQL dialect — no explanation, no comments, no markdown code fences, just the raw SQL statement.
+const SYSTEM_PROMPT = `You are a SQL generation assistant embedded in a database client. Given a database schema and a natural-language request, respond in exactly this format:
+1. A single valid SQL query for the given SQL dialect inside one \`\`\`sql fenced code block (raw SQL only inside the block, no comments).
+2. After the block, one or two short sentences explaining what the query does, written in the same language the user's request was written in. Do not repeat the SQL and do not add any other text.
 
 The schema below is the complete, authoritative list of tables and columns that exist. You MUST only reference table and column names that literally appear in it, spelled exactly as given — never invent, guess, pluralize/singularize, or "correct" a name that seems plausible but isn't listed. If the request doesn't clearly map to any table/column in the schema, pick the closest real match from the schema rather than fabricating a new one. If the request is otherwise ambiguous, make a reasonable assumption and still produce a query.`;
+
+const MULTI_SYSTEM_PROMPT = `You are a SQL generation assistant embedded in a database client that is connected to SEVERAL databases at once (possibly on different servers). One SQL statement can only run on ONE database and can never join or reference another database, so a request that spans databases must be split into one query per database. Respond in exactly this format:
+1. One fenced \`\`\`sql code block for every database the request needs. The first line inside each block must be a comment of the form "-- db: <label>" using the exact label from the database list, followed by one valid SQL query for that database's dialect (no other comments).
+2. If the request asks to compare data across databases (for example "values in A that are not in B"), each block must select the values to compare as its FIRST column, and right after the blocks add one line: "COMPARE: <n> NOT IN <m>" (values from block n that do not appear in block m) or "COMPARE: <n> IN <m>" (values present in both). n and m are block numbers starting at 1. Leave this line out when no comparison is requested.
+3. Then one or two short sentences explaining what you did, in the same language the user's request was written in. No other text.
+If the request does not mention a specific database, it is about the default database named in the request: write exactly one block for it and do not touch the others.
+Only use tables and columns that literally appear in the schema of the database a block is written for, spelled exactly as listed.`;
 
 // 12,000 chars (~3k tokens) was too aggressive — with a few dozen tables it
 // could silently cut off tables later in the list, causing the model to
@@ -317,6 +326,70 @@ function buildSchemaText(schema, logger) {
   return text
 }
 
+// Splits a reply into the SQL (from the first fenced block, or the whole text if
+// the model ignored the format) and the explanation that follows it.
+function parseReply(text) {
+  const fenced = text.match(/```(?:sql)?\s*([\s\S]*?)```/i)
+  if (!fenced) {
+    // Model ignored the fence: keep leading paragraphs that look like SQL, the rest is the explanation
+    const SQL_START = /^\s*(select|with|insert|update|delete|create|alter|drop|truncate|explain|show|describe|set|begin|commit|rollback|grant|revoke|merge|call|values|from|where|group|order|limit|having|union|join|left|right|inner|returning|--)/i
+    const paras = text.trim().split(/\n\s*\n/)
+    let n = 1
+    while (n < paras.length && SQL_START.test(paras[n])) n++
+    const joinBlank = (list) => list.join('\n\n')
+    return {
+      sql: stripCodeFence(joinBlank(paras.slice(0, n))),
+      explanation: joinBlank(paras.slice(n)).replace(/^\s*(?:explanation|explain)\s*:\s*/i, '').trim(),
+    }
+  }
+  const explanation = text.slice(fenced.index + fenced[0].length).replace(/^\s*(?:explanation|explain)\s*:\s*/i, '').trim()
+  return { sql: fenced[1].trim(), explanation }
+}
+
+// Multi-database reply: several fenced blocks tagged "-- db: <label>", an optional
+// "COMPARE: n NOT IN m" line, then an explanation.
+function parseMultiReply(text) {
+  // "COMPARE: n NOT IN m" can appear anywhere; pull it out first
+  let compare = null
+  const cmp = text.match(/COMPARE\s*:\s*(\d+)\s+(NOT\s+IN|IN)\s+(\d+)/i)
+  if (cmp) {
+    compare = { left: parseInt(cmp[1], 10), op: /not/i.test(cmp[2]) ? 'NOT IN' : 'IN', right: parseInt(cmp[3], 10) }
+    text = text.replace(cmp[0], '')
+  }
+
+  const queries = []
+  // Split a body at every "-- db: <label>" line: models often put several databases in one block
+  const addSegments = (body) => {
+    body.split(/^(?=[ \t]*--[ \t]*db[ \t]*:)/im).forEach(part => {
+      const tag = part.match(/^[ \t]*--[ \t]*db[ \t]*:[ \t]*(.+)$/im)
+      const sql = (tag ? part.replace(tag[0], '') : part).trim()
+      if (sql) queries.push({ db: tag ? tag[1].trim() : null, sql })
+    })
+  }
+  const cleanExplanation = (t) => t.replace(/^\s*(?:explanation|explain)\s*:\s*/i, '').replace(/\n{3,}/g, '\n\n').trim()
+
+  const fenceRe = /```(?:sql)?\s*([\s\S]*?)```/gi
+  let m
+  while ((m = fenceRe.exec(text)) !== null) addSegments(m[1])
+  if (queries.length > 0) {
+    return { queries, compare, explanation: cleanExplanation(text.replace(/```(?:sql)?\s*[\s\S]*?```/gi, '')) }
+  }
+
+  // No fences at all: everything from the first "-- db:" line on is SQL (plus maybe trailing prose)
+  const marker = text.match(/^[ \t]*--[ \t]*db[ \t]*:/im)
+  if (marker) {
+    const before = text.slice(0, marker.index)
+    addSegments(text.slice(marker.index))
+    const last = queries[queries.length - 1]
+    const tail = parseReply(last.sql)
+    last.sql = tail.sql
+    return { queries, compare, explanation: cleanExplanation([before, tail.explanation].filter(Boolean).join('\n\n')) }
+  }
+
+  const single = parseReply(text)
+  return { queries: [{ db: null, sql: single.sql }], compare, explanation: single.explanation }
+}
+
 function stripCodeFence(text) {
   const trimmed = text.trim()
   const fenced = trimmed.match(/^```(?:sql)?\s*([\s\S]*?)\s*```$/i)
@@ -325,7 +398,7 @@ function stripCodeFence(text) {
 
 // ── Provider calls ──────────────────────────────────────────────────────────────
 
-async function callAnthropic(apiKey, model, userPrompt, signal, logger) {
+async function callAnthropic(apiKey, model, userPrompt, signal, logger, systemPrompt = SYSTEM_PROMPT) {
   logger.log(`POST https://api.anthropic.com/v1/messages (model=${model})`)
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -338,7 +411,7 @@ async function callAnthropic(apiKey, model, userPrompt, signal, logger) {
     body: JSON.stringify({
       model,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     }),
   })
@@ -351,7 +424,7 @@ async function callAnthropic(apiKey, model, userPrompt, signal, logger) {
   return text
 }
 
-async function callGemini(apiKey, model, userPrompt, signal, logger) {
+async function callGemini(apiKey, model, userPrompt, signal, logger, systemPrompt = SYSTEM_PROMPT) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
   logger.log(`POST generativelanguage.googleapis.com (model=${model})`)
   const res = await fetch(url, {
@@ -359,7 +432,7 @@ async function callGemini(apiKey, model, userPrompt, signal, logger) {
     signal,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
       generationConfig: { temperature: 0 },
     }),
@@ -409,7 +482,7 @@ async function readSseText(res, logger) {
   return full
 }
 
-async function callOpenAiCompatible(baseUrl, apiKey, model, userPrompt, signal, logger) {
+async function callOpenAiCompatible(baseUrl, apiKey, model, userPrompt, signal, logger, systemPrompt = SYSTEM_PROMPT) {
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
   logger.log(`POST ${url} (model=${model}, streaming)`)
   const res = await fetch(url, {
@@ -425,7 +498,7 @@ async function callOpenAiCompatible(baseUrl, apiKey, model, userPrompt, signal, 
       temperature: 0,
       stream: true,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
     }),
@@ -455,7 +528,8 @@ function cancelGenerate(requestId) {
   return { success: true }
 }
 
-async function generateSql({ prompt, schema, dialect, requestId }) {
+async function generateSql({ prompt, schema, dialect, requestId, databases, defaultDatabase }) {
+  const multi = Array.isArray(databases) && databases.length > 1
   const logger = makeLogger()
 
   if (!prompt || !prompt.trim()) return { success: false, error: 'Enter a request first', logs: logger.lines }
@@ -472,9 +546,23 @@ async function generateSql({ prompt, schema, dialect, requestId }) {
   logger.log(`Provider: ${def.label} (${cfg.provider}), model: ${model || '(none)'}`)
   logger.log(`Dialect: ${dialect || 'sql'}, schema: ${tableCount} table(s), prompt: "${prompt.trim().slice(0, 120)}"`)
 
-  const schemaText = buildSchemaText(schema, logger)
-  logger.log(`Schema text sent to model: ${schemaText.length} chars`)
-  const userPrompt = `Dialect: ${dialect || 'sql'}\n\nSchema:\n${schemaText}\n\nRequest: ${prompt.trim()}`
+  let userPrompt
+  let systemPrompt = SYSTEM_PROMPT
+  if (multi) {
+    systemPrompt = MULTI_SYSTEM_PROMPT
+    const sections = databases.map(d => {
+      const text = buildSchemaText(d.schema, logger)
+      logger.log(`Database "${d.label}": ${Object.keys(d.schema || {}).length} table(s), ${text.length} chars`)
+      return `### ${d.label} (dialect: ${d.dialect || 'sql'})\n${text}`
+    })
+    const defaultLine = defaultDatabase ? `Default database (use it when the request names none): ${defaultDatabase}\n\n` : ''
+    userPrompt = `Databases:\n\n${sections.join('\n\n')}\n\n${defaultLine}Request: ${prompt.trim()}`
+    logger.log(`Multi-database mode: ${databases.length} databases, ${userPrompt.length} chars sent`)
+  } else {
+    const schemaText = buildSchemaText(schema, logger)
+    logger.log(`Schema text sent to model: ${schemaText.length} chars`)
+    userPrompt = `Dialect: ${dialect || 'sql'}\n\nSchema:\n${schemaText}\n\nRequest: ${prompt.trim()}`
+  }
 
   const controller = new AbortController()
   if (requestId) activeRequests.set(requestId, controller)
@@ -490,17 +578,22 @@ async function generateSql({ prompt, schema, dialect, requestId }) {
   try {
     let raw
     if (def.kind === 'anthropic') {
-      raw = await callAnthropic(cfg.apiKey, model, userPrompt, controller.signal, logger)
+      raw = await callAnthropic(cfg.apiKey, model, userPrompt, controller.signal, logger, systemPrompt)
     } else if (def.kind === 'gemini') {
-      raw = await callGemini(cfg.apiKey, model, userPrompt, controller.signal, logger)
+      raw = await callGemini(cfg.apiKey, model, userPrompt, controller.signal, logger, systemPrompt)
     } else {
       const baseUrl = cfg.provider === 'custom' ? cfg.baseUrl : def.baseUrl
       if (!baseUrl) throw new Error('No base URL configured for this provider')
       if (!model) throw new Error('No model configured for this provider')
-      raw = await callOpenAiCompatible(baseUrl, cfg.apiKey, model, userPrompt, controller.signal, logger)
+      raw = await callOpenAiCompatible(baseUrl, cfg.apiKey, model, userPrompt, controller.signal, logger, systemPrompt)
     }
     logger.log('Done')
-    return { success: true, sql: stripCodeFence(raw), logs: logger.lines }
+    if (multi) {
+      const parsed = parseMultiReply(raw)
+      return { success: true, sql: parsed.queries[0]?.sql || '', ...parsed, logs: logger.lines }
+    }
+    const { sql, explanation } = parseReply(raw)
+    return { success: true, sql, explanation, logs: logger.lines }
   } catch (err) {
     if (err.name === 'AbortError') {
       if (timedOut) {

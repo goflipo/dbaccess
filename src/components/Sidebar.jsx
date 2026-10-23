@@ -579,9 +579,8 @@ function Sidebar({
                     </span>
                   )}
                   <span className="sidebar-conn-type">{conn.type === 'postgres' ? 'PG' : conn.type === 'mysql' ? 'MY' : 'CH'}</span>
-                </div>
 
-                {/* ── Action buttons ── */}
+                {/* ── Action buttons (inside the header so they overlay it on hover) ── */}
                 <div className="sidebar-conn-actions">
                   {/* Switch DB button — opens floating dropdown */}
                   <div style={{ position: 'relative' }}>
@@ -646,6 +645,7 @@ function Sidebar({
                   <button className="sidebar-action-btn error" onClick={(e) => { e.stopPropagation(); onDisconnect(conn.id) }} title="Disconnect">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/></svg>
                   </button>
+                </div>
                 </div>
 
                 {(expandedConns.has(conn.id) || filterText) && (
@@ -753,8 +753,12 @@ function Sidebar({
                                 <div className="sidebar-objects-section-label sidebar-select-all-row">
                                   <span>Tables ({baseTables.length})</span>
                                   <button
+                                    type="button"
                                     className="sidebar-select-all-btn"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onContextMenu={(e) => e.stopPropagation()}
                                     onClick={(e) => {
+                                      e.preventDefault()
                                       e.stopPropagation()
                                       const allSelected = baseTables.every(t => isTableSelected(conn.id, t.fullName))
                                       setSelectedTables(prev => {

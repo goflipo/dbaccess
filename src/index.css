@@ -51,36 +51,37 @@
 
 /* Light theme overrides */
 [data-theme="light"] {
-  --bg-primary: #f5f7fa;
-  --bg-secondary: #edf0f5;
-  --bg-tertiary: #e9edf3;
-  --bg-surface: #e4e8f0;
-  --bg-elevated: #dce1ec;
-  --bg-hover: #d4d9e8;
-  --bg-active: #c9cedf;
-  --border-subtle: #d8dde8;
-  --border-default: #c5ccd9;
-  --border-strong: #adb5c7;
-  --text-primary: #333a54;
-  --text-secondary: #5b6485;
-  --text-tertiary: #8890ab;
+  /* Neutral light palette: white work area, soft grey chrome, no blue tint */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f7f9;
+  --bg-tertiary: #f0f2f5;
+  --bg-surface: #eceef2;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e8ebf0;
+  --bg-active: #dde2ea;
+  --border-subtle: #e6e9ee;
+  --border-default: #d5dae2;
+  --border-strong: #b9c0cc;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --text-tertiary: #000000;
   --text-muted: var(--text-tertiary);
-  --accent-primary: #2f7de0;
-  --accent-primary-hover: #1f6bcc;
-  --accent-primary-bg: rgba(47, 125, 224, 0.10);
-  --accent-primary-rgb: 47, 125, 224;
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #1d4fd0;
+  --accent-primary-bg: rgba(37, 99, 235, 0.09);
+  --accent-primary-rgb: 37, 99, 235;
   --accent-blue: var(--accent-primary);
-  --accent-green: #1da868;
-  --accent-green-bg: rgba(29, 168, 104, 0.10);
-  --accent-red: #d0453f;
-  --accent-red-bg: rgba(208, 69, 63, 0.10);
-  --accent-yellow: #c8960a;
-  --accent-yellow-bg: rgba(200, 150, 10, 0.10);
-  --accent-cyan: #0e9d96;
-  --accent-teal: #0e9d96;
-  --accent-purple: #7c5cf0;
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
+  --accent-green: #15915a;
+  --accent-green-bg: rgba(21, 145, 90, 0.10);
+  --accent-red: #d03a34;
+  --accent-red-bg: rgba(208, 58, 52, 0.09);
+  --accent-yellow: #b7860b;
+  --accent-yellow-bg: rgba(183, 134, 11, 0.12);
+  --accent-cyan: #0c8f89;
+  --accent-teal: #0c8f89;
+  --accent-purple: #6d4fe0;
+  --shadow-md: 0 2px 8px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 8px 28px rgba(16, 24, 40, 0.12);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: var(--border-strong); }
@@ -159,3 +160,13 @@ button {
 @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Light theme: table names are pure black everywhere */
+[data-theme="light"] .sidebar-table-main,
+[data-theme="light"] .sidebar-table-name,
+[data-theme="light"] .sidebar-col-name,
+[data-theme="light"] .dbcompare-data-tablename,
+[data-theme="light"] .dbcompare-table-name,
+[data-theme="light"] .dhp-table-name,
+[data-theme="light"] .erd-table-name,
+[data-theme="light"] .metrics-table-name { color: #000000 !important; }

@@ -263,7 +263,7 @@ function registerIpcHandlers(ipcMain, dialog) {
 
       activeSqlJobs.delete(sessionId)
       const finalType = session.cancelled ? 'cancelled' : 'done'
-      send({ type: finalType, sessionId, stmtExecuted, errCount, bytesProcessed: totalBytes, totalBytes, fileName, errors: errors.slice(0, 50) })
+      send({ type: finalType, sessionId, stmtExecuted, errCount, bytesProcessed: totalBytes, totalBytes, fileName, errors: errors.slice(0, 5000) })
 
       return { success: true, sessionId, stmtExecuted, errCount, cancelled: session.cancelled }
     } catch (err) {

@@ -220,20 +220,13 @@ function QueryEditor({
   activeConnectionId, onOpenFavorites, onSaveFavorite,
   onExplain, connectionName, queryError, onRunSqlFile,
   theme: appTheme = 'dark', fillHeight = false, dbType,
+  aiChatOpen = false, onToggleAiChat,
 }) {
   const [editorHeight, setEditorHeight] = useState(220)
   const [showImportInput, setShowImportInput] = useState(false)
   const [importTable, setImportTable] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
-  const [showAiPanel, setShowAiPanel] = useState(false)
-  const [aiPrompt, setAiPrompt] = useState('')
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiError, setAiError] = useState('')
-  const [aiLogs, setAiLogs] = useState([])
-  const [showAiLogs, setShowAiLogs] = useState(false)
-  const aiRequestIdRef = useRef(null)
   const [errorCopied, setErrorCopied] = useState(false)
-  const [aiErrorCopied, setAiErrorCopied] = useState(false)
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -405,59 +398,6 @@ function QueryEditor({
     onChange(minified)
   }
 
-  const handleAiGenerate = async () => {
-    if (!aiPrompt.trim() || aiLoading) return
-    const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    aiRequestIdRef.current = requestId
-    setAiLoading(true); setAiError(''); setAiLogs([])
-    try {
-      // The autocomplete schema loads in the background; if it isn't there yet
-      // the model would get no table info, so load it now.
-      let schemaForAi = sqlSchema
-      if (activeConnectionId && Object.keys(schemaForAi || {}).length === 0) {
-        const schemaRes = await window.dbAccess.getSchemaFull(activeConnectionId).catch(() => null)
-        if (schemaRes?.success) {
-          const map = {}
-          for (const t of schemaRes.data?.tables || []) {
-            const cols = (t.columns || []).map(c => c.name)
-            map[t.name] = cols
-            if (t.fullName && t.fullName !== t.name) map[t.fullName] = cols
-          }
-          schemaForAi = map
-          setSqlSchema(map)
-        }
-      }
-      const result = await window.dbAccess.ai.generateSql({
-        prompt: aiPrompt.trim(),
-        schema: schemaForAi,
-        dialect: dbType || 'sql',
-        requestId,
-      })
-      setAiLogs(result.logs || [])
-      if (result.success) {
-        onChange(result.sql)
-        setAiPrompt('')
-        setShowAiPanel(false)
-        onRun(result.sql)
-      } else if (!result.cancelled) {
-        setAiError(result.error || 'Failed to generate SQL')
-        setShowAiLogs(true)
-      }
-    } catch (err) {
-      setAiError(err.message || 'Failed to generate SQL')
-      setShowAiLogs(true)
-    } finally {
-      setAiLoading(false)
-      aiRequestIdRef.current = null
-    }
-  }
-
-  const handleAiStop = () => {
-    if (aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current)
-    setAiLoading(false)
-    setAiError('Cancelled')
-  }
-
   const copyErrorText = (text, setCopied) => {
     navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
@@ -591,8 +531,8 @@ function QueryEditor({
 
         {/* Ask AI */}
         <button
-          className={`toolbar-btn-sm ai-ask-btn ${showAiPanel ? 'active' : ''}`}
-          onClick={() => { setShowAiPanel(v => !v); setAiError('') }}
+          className={`toolbar-btn-sm ai-ask-btn ${aiChatOpen ? 'active' : ''}`}
+          onClick={() => onToggleAiChat?.()}
           title="Ask AI to write a query from a description"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -699,70 +639,6 @@ function QueryEditor({
           </>
         )}
       </div>
-
-      {/* AI Panel */}
-      {showAiPanel && (
-        <div className="ai-panel">
-          <div className="ai-panel-row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ai-panel-icon">
-              <path d="M12 3l1.9 4.8L19 9.5l-4.8 1.7L12 16l-1.9-4.8L5 9.5l4.8-1.7L12 3z"/>
-            </svg>
-            <input
-              type="text"
-              className="ai-panel-input"
-              placeholder="Describe the query you want, e.g. 'top 10 customers by order total this month'"
-              value={aiPrompt}
-              onChange={e => setAiPrompt(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handleAiGenerate()
-                if (e.key === 'Escape') { if (aiLoading && aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current); setShowAiPanel(false) }
-              }}
-              autoFocus
-              disabled={aiLoading}
-            />
-            {aiLoading ? (
-              <button className="ai-panel-generate ai-panel-stop" onClick={handleAiStop} title="Stop generating">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
-                Stop
-              </button>
-            ) : (
-              <button className="ai-panel-generate" onClick={handleAiGenerate} disabled={!aiPrompt.trim()}>
-                Generate
-              </button>
-            )}
-            <button className="ai-panel-close" onClick={() => { if (aiLoading && aiRequestIdRef.current) window.dbAccess.ai.cancelGenerate(aiRequestIdRef.current); setShowAiPanel(false) }}>✕</button>
-          </div>
-          {aiError && (
-            <div className="ai-panel-error-row">
-              <div className="ai-panel-error">{aiError}</div>
-              <button
-                className="ai-panel-error-copy"
-                onClick={() => copyErrorText(aiError, setAiErrorCopied)}
-                title="Copy error message"
-              >
-                {aiErrorCopied ? (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
-                ) : (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                )}
-              </button>
-            </div>
-          )}
-          {aiLogs.length > 0 && (
-            <div className="ai-panel-logs-wrap">
-              <button className="ai-panel-logs-toggle" onClick={() => setShowAiLogs(v => !v)}>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ transform: showAiLogs ? 'rotate(90deg)' : 'none' }}><path d="M9 18l6-6-6-6"/></svg>
-                {showAiLogs ? 'Hide' : 'Show'} details ({aiLogs.length})
-              </button>
-              {showAiLogs && (
-                <div className="ai-panel-logs">
-                  {aiLogs.map((line, i) => <div key={i} className="ai-panel-log-line">{line}</div>)}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Query Parameters Panel */}
       {showParamsPanel && hasParams && (
