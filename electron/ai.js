@@ -332,10 +332,12 @@ function parseReply(text) {
   const fenced = text.match(/```(?:sql)?\s*([\s\S]*?)```/i)
   if (!fenced) {
     // Model ignored the fence: keep leading paragraphs that look like SQL, the rest is the explanation
-    const SQL_START = /^\s*(select|with|insert|update|delete|create|alter|drop|truncate|explain|show|describe|set|begin|commit|rollback|grant|revoke|merge|call|values|from|where|group|order|limit|having|union|join|left|right|inner|returning|--)/i
+    const SQL_START = /^\s*(?:(?:select|with|insert|update|delete|create|alter|drop|truncate|explain|show|describe|set|begin|commit|rollback|grant|revoke|merge|call|values|from|where|group|order|limit|having|union|join|left|right|inner|returning)\b|--)/i
     const paras = text.trim().split(/\n\s*\n/)
     let n = 1
-    while (n < paras.length && SQL_START.test(paras[n])) n++
+    // "Truncated both tables." starts with a keyword too: prose ends with a period, SQL doesn't
+    const looksSql = (para) => SQL_START.test(para) && !/[.!?:]\s*$/.test(para)
+    while (n < paras.length && looksSql(paras[n])) n++
     const joinBlank = (list) => list.join('\n\n')
     return {
       sql: stripCodeFence(joinBlank(paras.slice(0, n))),
