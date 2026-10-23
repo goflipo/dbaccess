@@ -617,4 +617,87 @@ async function generateSql({ prompt, schema, dialect, requestId, databases, defa
   }
 }
 
-module.exports = { testModel, listModels, listProviders, saveAiConfig, getAiConfigStatus, clearAiConfig, generateSql, cancelGenerate }
+// ── ER diagram assistant ────────────────────────────────────────────────────
+const ER_SYSTEM_PROMPT = `You are a database design assistant embedded in an ER-diagram viewer. You get the tables (with columns) and the declared foreign keys of one database, then a question. Reply with ONE JSON object and nothing else (no markdown fence), in exactly this shape:
+{"answer": "<short, helpful answer in the same language as the question>", "tables": ["<schema.table>", ...], "relations": [{"sourceTable": "<schema.table>", "sourceColumn": "<column>", "targetTable": "<schema.table>", "targetColumn": "<column>", "reason": "<one short sentence>"}]}
+Rules:
+- "tables": the tables the answer is about (shown highlighted on the diagram), spelled exactly as in the schema. Use [] if none.
+- "relations": ONLY foreign-key relationships that are probably missing, i.e. NOT already in the declared foreign keys. Use [] unless the question asks about missing/implicit/inferred relations. Infer from column names (user_id -> users.id), types and naming conventions. Every table and column must literally exist in the schema; sourceColumn is the referencing (child) column.
+- Keep "answer" concise; use plain text, short lines or "-" bullets.`
+
+function buildErText(tables, foreignKeys, withTypes) {
+  const lines = tables.map(t => {
+    const cols = (t.columns || []).map(c => withTypes && c.type ? `${c.name} ${c.type}` : c.name).join(', ')
+    return `${t.fullName}(${cols})`
+  })
+  const fks = (foreignKeys || []).map(f => `${f.sourceTable}.${f.sourceColumn} -> ${f.targetTable}.${f.targetColumn}`)
+  return `Tables:\n${lines.join('\n')}\n\nDeclared foreign keys (${fks.length}):\n${fks.join('\n') || '(none)'}`
+}
+
+function parseErReply(raw) {
+  const text = String(raw || '').trim()
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    try {
+      const obj = JSON.parse(text.slice(start, end + 1))
+      return {
+        answer: typeof obj.answer === 'string' ? obj.answer : '',
+        tables: Array.isArray(obj.tables) ? obj.tables.filter(t => typeof t === 'string') : [],
+        relations: Array.isArray(obj.relations) ? obj.relations.filter(r => r && r.sourceTable && r.sourceColumn && r.targetTable && r.targetColumn) : [],
+      }
+    } catch { /* fall through: treat as plain text */ }
+  }
+  return { answer: text, tables: [], relations: [] }
+}
+
+async function askEr({ question, tables, foreignKeys, requestId }) {
+  const logger = makeLogger()
+  if (!question || !question.trim()) return { success: false, error: 'Enter a question first', logs: logger.lines }
+  if (!Array.isArray(tables) || tables.length === 0) return { success: false, error: 'No tables loaded', logs: logger.lines }
+
+  const cfg = loadAiConfig()
+  if (!cfg) return { success: false, error: 'No AI provider configured. Add an API key in Settings → AI Assistant.', logs: logger.lines }
+  const def = PROVIDERS[cfg.provider]
+  const model = cfg.model || def.defaultModel
+
+  // Large schemas: drop column types first, then cap the table list, to stay inside the context window
+  const MAX_CHARS = 60000
+  let text = buildErText(tables, foreignKeys, true)
+  if (text.length > MAX_CHARS) text = buildErText(tables, foreignKeys, false)
+  let truncated = false
+  if (text.length > MAX_CHARS) { text = text.slice(0, MAX_CHARS); truncated = true }
+  logger.log(`ER ask via ${def.label}/${model}: ${tables.length} tables, ${(foreignKeys || []).length} FKs, ${text.length} chars${truncated ? ' (truncated)' : ''}`)
+  const userPrompt = `${text}\n\nQuestion: ${question.trim()}`
+
+  const controller = new AbortController()
+  if (requestId) activeRequests.set(requestId, controller)
+  let timedOut = false
+  const timeoutId = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+  try {
+    let raw
+    if (def.kind === 'anthropic') {
+      raw = await callAnthropic(cfg.apiKey, model, userPrompt, controller.signal, logger, ER_SYSTEM_PROMPT)
+    } else if (def.kind === 'gemini') {
+      raw = await callGemini(cfg.apiKey, model, userPrompt, controller.signal, logger, ER_SYSTEM_PROMPT)
+    } else {
+      const baseUrl = cfg.provider === 'custom' ? cfg.baseUrl : def.baseUrl
+      if (!baseUrl) throw new Error('No base URL configured for this provider')
+      if (!model) throw new Error('No model configured for this provider')
+      raw = await callOpenAiCompatible(baseUrl, cfg.apiKey, model, userPrompt, controller.signal, logger, ER_SYSTEM_PROMPT)
+    }
+    return { success: true, ...parseErReply(raw), truncated, logs: logger.lines }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      if (timedOut) return { success: false, error: 'No response after 90s — the provider may be overloaded or unreachable.', logs: logger.lines }
+      return { success: false, cancelled: true, error: 'Cancelled', logs: logger.lines }
+    }
+    const cause = err.cause?.code || err.cause?.message || err.cause?.cause?.message
+    return { success: false, error: cause ? `${err.message}: ${cause}` : (err.message || 'AI request failed'), logs: logger.lines }
+  } finally {
+    clearTimeout(timeoutId)
+    if (requestId) activeRequests.delete(requestId)
+  }
+}
+
+module.exports = { testModel, listModels, listProviders, saveAiConfig, getAiConfigStatus, clearAiConfig, generateSql, cancelGenerate, askEr }

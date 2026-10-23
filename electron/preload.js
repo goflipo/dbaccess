@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('dbAccess', {
     getStatus:     ()                        => ipcRenderer.invoke('ai:get-config-status'),
     clearConfig:   ()                        => ipcRenderer.invoke('ai:clear-config'),
     generateSql:   (params)                  => ipcRenderer.invoke('ai:generate-sql', params),
+    askEr:         (params)                  => ipcRenderer.invoke('ai:er-ask', params),
     cancelGenerate: (requestId)               => ipcRenderer.invoke('ai:cancel-generate', requestId),
   },
 });

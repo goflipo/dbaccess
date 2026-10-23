@@ -165,6 +165,10 @@ function registerAiHandlers() {
     return await aiManager.generateSql(params || {});
   });
 
+  ipcMain.handle('ai:er-ask', async (_event, params) => {
+    return await aiManager.askEr(params || {});
+  });
+
   ipcMain.handle('ai:cancel-generate', (_event, requestId) => {
     return aiManager.cancelGenerate(requestId);
   });

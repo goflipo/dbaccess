@@ -1248,7 +1248,7 @@ function MainApp() {
           {activeTab ? (
             <div className="app-workspace" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {activeTab.type === 'erd' ? (
-                <ERDiagram connectionId={activeTab.connectionId} dbAccess={window.dbAccess} />
+                <ERDiagram connectionId={activeTab.connectionId} dbAccess={window.dbAccess} onOpenSql={(sql) => handleNewTab(activeTab.connectionId, sql, 'Suggested foreign keys')} />
               ) : activeTab.type === 'metrics' ? (
                 <MetricsBoard connectionId={activeTab.connectionId} />
               ) : activeTab.type === 'users' ? (

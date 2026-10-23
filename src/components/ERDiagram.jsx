@@ -150,7 +150,9 @@ const TableNode = ({ data, selected }) => {
   )
 }
 
-export default function ERDiagram({ connectionId, dbAccess }) {
+import ErAiPanel from './ErAiPanel'
+
+export default function ERDiagram({ connectionId, dbAccess, onOpenSql }) {
   const [nodes, setNodes] = useState([])
   const [edges, setEdges] = useState([])
   const [loading, setLoading] = useState(true)
@@ -161,6 +163,10 @@ export default function ERDiagram({ connectionId, dbAccess }) {
   const [isExporting, setIsExporting] = useState(false)
   const [fkCount, setFkCount] = useState(0)
   const [focusPos, setFocusPos] = useState({})
+  const [schemaData, setSchemaData] = useState(null)
+  const [showAi, setShowAi] = useState(false)
+  const [aiHits, setAiHits] = useState([])
+  const [aiRels, setAiRels] = useState([])
 
   const nodeTypes = useMemo(() => ({ table: TableNode }), [])
 
@@ -231,6 +237,7 @@ export default function ERDiagram({ connectionId, dbAccess }) {
           }))
 
           setFkCount(initialEdges.length)
+          setSchemaData({ tables, foreignKeys })
 
           const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(initialNodes, initialEdges)
           setNodes(layoutedNodes)
@@ -298,14 +305,40 @@ export default function ERDiagram({ connectionId, dbAccess }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNode, rfInstance])
 
+  const handleAiHighlight = useCallback((ids) => {
+    setAiHits(ids)
+    if (ids.length > 0) {
+      setSelectedNode(null)
+      setFocusPos({})
+      setTimeout(() => rfInstance?.fitView({ nodes: ids.map(id => ({ id })), padding: 0.25, duration: 700, maxZoom: 1.2 }), 80)
+    }
+  }, [rfInstance])
+
+  const handleAiRelations = useCallback((rels) => {
+    setAiRels(rels)
+    if (rels.length > 0) {
+      setSelectedNode(null)
+      setFocusPos({})
+      const ids = [...new Set(rels.flatMap(r => [r.sourceTable, r.targetTable]))]
+      setAiHits(ids)
+      setTimeout(() => rfInstance?.fitView({ nodes: ids.map(id => ({ id })), padding: 0.25, duration: 700, maxZoom: 1.2 }), 80)
+    }
+  }, [rfInstance])
+
   // Highlight connected nodes when one is selected
   const displayNodes = useMemo(() => {
     return nodes.map(node => {
       if (!selectedNode) {
+        const hasAi = aiHits.length > 0
+        const isHit = hasAi && aiHits.includes(node.id)
         return {
           ...node,
           data: { ...node.data, activeColumns: new Set() },
-          style: { opacity: 1, filter: 'none', transition: 'all 0.3s ease' }
+          style: {
+            opacity: hasAi && !isHit ? 0.18 : 1,
+            filter: isHit ? 'drop-shadow(0 0 10px #a78bfa)' : 'none',
+            transition: 'all 0.3s ease',
+          }
         }
       }
 
@@ -340,10 +373,27 @@ export default function ERDiagram({ connectionId, dbAccess }) {
         }
       }
     })
-  }, [nodes, edges, selectedNode, focusPos])
+  }, [nodes, edges, selectedNode, focusPos, aiHits])
 
   const displayEdges = useMemo(() => {
-    return edges.map(edge => {
+    const suggested = aiRels.map((r, i) => ({
+      id: `ai-${i}-${r.sourceTable}.${r.sourceColumn}->${r.targetTable}.${r.targetColumn}`,
+      source: r.sourceTable,
+      target: r.targetTable,
+      sourceHandle: 'source-right',
+      targetHandle: 'target-left',
+      type: 'smoothstep',
+      hidden: !!selectedNode,
+      label: `? ${r.sourceColumn} → ${r.targetColumn}`,
+      labelStyle: { fill: '#a78bfa', fontWeight: 600, fontSize: 10, fontFamily: 'monospace' },
+      labelBgStyle: { fill: '#1a2035', stroke: '#a78bfa', strokeWidth: 1 },
+      labelBgPadding: [6, 3],
+      labelBgBorderRadius: 4,
+      style: { stroke: '#a78bfa', strokeWidth: 2.5, strokeDasharray: '7 5' },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#a78bfa' },
+      zIndex: 50,
+    }))
+    return [...edges.map(edge => {
       const isActive = selectedNode && (edge.source === selectedNode || edge.target === selectedNode)
       const isDimmed = selectedNode && !isActive
 
@@ -381,8 +431,8 @@ export default function ERDiagram({ connectionId, dbAccess }) {
         animated: isActive,
         zIndex: isActive ? 100 : 1,
       }
-    })
-  }, [edges, selectedNode])
+    }), ...suggested]
+  }, [edges, selectedNode, aiRels])
 
   if (loading) return (
     <div className="erd-container erd-center">
@@ -544,6 +594,9 @@ export default function ERDiagram({ connectionId, dbAccess }) {
             </span>
           )}
         </div>
+        <button className="btn-primary" onClick={() => setShowAi(v => !v)} title="Ask AI about this diagram">
+          Ask AI
+        </button>
         <button className="btn-primary" onClick={() => setExportMenuOpen(!exportMenuOpen)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
           Export
@@ -573,6 +626,18 @@ export default function ERDiagram({ connectionId, dbAccess }) {
           </div>
         )}
       </div>
+
+      {showAi && schemaData && (
+        <ErAiPanel
+          connectionId={connectionId}
+          tables={schemaData.tables}
+          foreignKeys={schemaData.foreignKeys}
+          onHighlight={handleAiHighlight}
+          onShowRelations={handleAiRelations}
+          onOpenSql={onOpenSql}
+          onClose={() => { setShowAi(false); setAiHits([]); setAiRels([]) }}
+        />
+      )}
 
       {isExporting && (
         <div className="erd-export-overlay">
