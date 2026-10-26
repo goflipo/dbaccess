@@ -1,14 +1,12 @@
-; ── Pre-install cleanup ──────────────────────────────────────────────────────
-; Runs before the installer UI appears (.onInit).
-; Removes any leftover app data from a previous installation so the new
-; install always starts completely clean (license, settings, connections, etc.)
-!macro customInit
-  RMDir /r "$APPDATA\DB Access"
-!macroend
+; ── Keep user data across installs / updates ─────────────────────────────────
+; Installing or updating must NOT touch %APPDATA%\DB Access: it holds saved
+; connections, settings, the encrypted AI API key and the verified-models list.
 
 ; ── Post-uninstall cleanup ────────────────────────────────────────────────────
-; Electron-builder removes program files but leaves AppData intact by default.
-; This wipes the entire userData folder so nothing is left behind after removal.
+; Only wipe the userData folder on a real uninstall. During an update the old
+; version is uninstalled first (with the --updated flag) and must keep the data.
 !macro customUnInstall
-  RMDir /r "$APPDATA\DB Access"
+  ${ifNot} ${isUpdated}
+    RMDir /r "$APPDATA\DB Access"
+  ${endIf}
 !macroend
