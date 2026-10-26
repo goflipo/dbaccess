@@ -520,7 +520,7 @@ async function callOpenAiCompatible(baseUrl, apiKey, model, userPrompt, signal, 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     const detail = data?.error?.message || data?.detail || data?.message || ''
-    const hint = res.status === 404 ? ` — model "${model}" was not found on this provider. Pick a model from the dropdown in Settings → AI Assistant (use Refresh to load the live list).` : ''
+    const hint = res.status === 404 ? ` — model "${model}" was not found on this provider. ${baseUrl.includes('nvidia.com') ? 'This model is not enabled for your NVIDIA account. In Settings → AI Assistant press "Find working models" and pick one from the checked list.' : 'Pick a model from the dropdown in Settings → AI Assistant (use Refresh to load the live list).'}` : ''
     throw new Error(`API error (${res.status})${detail ? ': ' + detail : ''}${hint}`)
   }
   const text = await readSseText(res, logger)
