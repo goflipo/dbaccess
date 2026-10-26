@@ -182,9 +182,15 @@
 .sidebar-conn-header:hover { background: var(--bg-hover); }
 .sidebar-conn-header:hover .sidebar-conn-actions { opacity: 1; pointer-events: auto; }
 .sidebar-conn-actions {
-  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; opacity: 0; pointer-events: none;
+  /* Covers the whole header on hover with a solid background, so the buttons never
+     draw on top of the connection name / badges */
+  position: absolute; right: 0; top: 0; bottom: 0; padding: 0 4px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 0;
+  background: var(--bg-hover); border-radius: var(--radius-md);
+  opacity: 0; pointer-events: none;
   transition: opacity var(--transition-fast);
 }
+.sidebar-conn-actions .sidebar-action-btn { padding: 3px; }
 .sidebar-action-btn {
   background: transparent; border: none; color: var(--text-tertiary);
   cursor: pointer; padding: 4px; border-radius: var(--radius-sm);
