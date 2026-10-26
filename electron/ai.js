@@ -63,7 +63,8 @@ function saveAiConfig(provider, apiKey, options = {}) {
   if (provider === 'custom' && !baseUrl) {
     return { success: false, error: 'Base URL is required for a custom provider' };
   }
-  if (!PROVIDERS[provider].defaultModel && !model) {
+  // NVIDIA's model list can only be built after the key is saved, so the key may be saved before a model is picked
+  if (!PROVIDERS[provider].defaultModel && !model && provider !== 'nvidia') {
     return { success: false, error: 'Model is required for this provider' };
   }
   try {

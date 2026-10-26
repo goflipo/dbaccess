@@ -253,7 +253,8 @@ function AiAssistantSettings() {
       setMessage('Base URL is required for a custom provider')
       return
     }
-    if (!current.defaultModel && !model.trim()) {
+    // NVIDIA has no default model and its list can only be built once the key is saved, so allow saving the key first
+    if (!current.defaultModel && !model.trim() && provider !== 'nvidia') {
       setMessage('Model is required for this provider')
       return
     }
@@ -265,6 +266,11 @@ function AiAssistantSettings() {
       setChangingKey(false)
       setStatus({ provider, hasKey: true, baseUrl: baseUrl.trim(), model: model.trim() })
       setMessage(apiKey.trim() ? 'Key saved on this device' : 'Settings saved (existing key kept)')
+      // Rebuild the model list with the freshly saved key (NVIDIA: checks every model, takes a few minutes)
+      if (apiKey.trim() && provider === 'nvidia') {
+        setMessage('Key saved on this device — checking which models work with it…')
+        loadModels(provider, '', baseUrl.trim(), true)
+      }
     } else {
       setMessage(res.error || 'Failed to save key')
     }
@@ -304,10 +310,10 @@ function AiAssistantSettings() {
           />
         </div>
       )}
-      <div className="settings-ai-key-row">
+      <div className="settings-ai-key-row" style={{ flexWrap: 'wrap' }}>
         <select
           className="settings-ai-select"
-          style={{ flex: 1 }}
+          style={{ flex: '1 1 160px', minWidth: 0 }}
           value={manualModel || (model && !models.includes(model)) ? '__other__' : model}
           onChange={e => {
             if (e.target.value === '__other__') { setManualModel(true) }
@@ -344,6 +350,9 @@ function AiAssistantSettings() {
         <div className="settings-ai-endpoint" style={{ color: testResult.success ? 'var(--accent-green)' : 'var(--accent-red)' }}>
           {testResult.success ? 'This model works with your key.' : `Test failed — ${testResult.error}`}
         </div>
+      )}
+      {provider === 'nvidia' && !hasSavedKey && !apiKey.trim() && models.length === 0 && (
+        <div className="settings-ai-endpoint">No NVIDIA key saved yet — paste your key below and press Save. The model list is then checked automatically.</div>
       )}
       {modelSource && <div className="settings-ai-endpoint">Model list: {modelSource}{modelSource === 'verified' ? ' — only models that answered with your key; retired ones are hidden' : ''}</div>}
       {(manualModel || (model && !models.includes(model))) && (
