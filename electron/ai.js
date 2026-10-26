@@ -160,6 +160,16 @@ async function listModels({ provider, apiKey, baseUrl, verify } = {}) {
   const saved = loadAiConfig();
   const key = apiKey || (saved?.provider === provider ? saved.apiKey : '');
   const base = provider === 'custom' ? (baseUrl || (saved?.provider === 'custom' ? saved.baseUrl : '')) : def.baseUrl;
+  if (!key && provider === 'nvidia') {
+    // The catalog itself is public: show the chat models unverified until a key is saved and probed
+    try {
+      const res = await fetch(`${def.baseUrl}/models`, { signal: AbortSignal.timeout(15000) });
+      const data = await res.json().catch(() => ({}));
+      const ids = [...new Set((data.data || []).map(m => m.id).filter(id => id && !NON_CHAT_MODEL.test(id)))].sort();
+      if (res.ok && ids.length) return { success: true, models: ids, source: 'catalog' };
+    } catch { /* offline: fall through to the empty suggestion */ }
+    return { success: true, models: suggested, source: 'suggested' };
+  }
   if (!key || (def.kind === 'openai-compat' && !base)) {
     return { success: true, models: suggested, source: 'suggested' };
   }

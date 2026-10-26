@@ -354,7 +354,7 @@ function AiAssistantSettings() {
       {provider === 'nvidia' && !hasSavedKey && !apiKey.trim() && models.length === 0 && (
         <div className="settings-ai-endpoint">No NVIDIA key saved yet — paste your key below and press Save. The model list is then checked automatically.</div>
       )}
-      {modelSource && <div className="settings-ai-endpoint">Model list: {modelSource}{modelSource === 'verified' ? ' — only models that answered with your key; retired ones are hidden' : ''}</div>}
+      {modelSource && <div className="settings-ai-endpoint">Model list: {modelSource}{modelSource === 'verified' ? ' — only models that answered with your key; retired ones are hidden' : ''}{modelSource === 'catalog' ? ' — NVIDIA catalog, NOT verified: some may be retired or not enabled for you. Save your key to keep only the working ones' : ''}</div>}
       {(manualModel || (model && !models.includes(model))) && (
         <div className="settings-ai-key-row">
           <input
